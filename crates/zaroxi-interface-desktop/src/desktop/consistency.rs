@@ -1,8 +1,7 @@
-///
-/// Note: the module intentionally reads `&super::DesktopComposition` and returns
-/// the local `DesktopConsistencyReport` type which is re-exported by the parent
-/// module (`pub use consistency::DesktopConsistencyReport;`) to preserve the
-/// previous public API.
+// Note: the module intentionally reads `&super::DesktopComposition` and returns
+// the local `DesktopConsistencyReport` type which is re-exported by the parent
+// module (`pub use consistency::DesktopConsistencyReport;`) to preserve the
+// previous public API.
 
 /// Small, shell-facing consistency report for a DesktopComposition.
 ///
@@ -46,9 +45,9 @@ pub fn latest_consistency_report(comp: &super::DesktopComposition) -> DesktopCon
     // 2) active buffer alignment with active-buffer-details
     let meta_active = comp.metadata.as_ref().and_then(|m| m.active_buffer.clone());
     let abd_opt = comp.latest_active_buffer_details();
-    let active_buffer_matches_details = if meta_active.is_some() {
+    let active_buffer_matches_details = if let Some(meta_active) = meta_active.as_ref() {
         match abd_opt {
-            Some(abd) => abd.buffer_id == meta_active.unwrap(),
+            Some(abd) => &abd.buffer_id == meta_active,
             None => false,
         }
     } else {

@@ -41,7 +41,7 @@ fn syntax_trace_enabled() -> bool {
 ///   - `disabled_by_budget_policy`      — text exceeds the (large-file) byte budget
 ///   - `parse_failed`                   — grammar unavailable or tree-sitter parse failed
 ///   - `empty_result_unexpected`        — a supported language parsed but produced
-///                                        zero spans (a bug path worth flagging)
+///     zero spans (a bug path worth flagging)
 fn highlight_with_reason(
     pool: &ParserPool,
     language: LanguageId,

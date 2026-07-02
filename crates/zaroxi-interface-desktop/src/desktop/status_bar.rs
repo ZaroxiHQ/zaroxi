@@ -28,19 +28,19 @@ pub fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super:
         });
 
     // Prefer AI projection result when present.
-    if let Some(ai) = meta.ai_projection.as_ref() {
-        if let Some(result) = ai.result.as_ref() {
-            // Truncate to keep status short and stable.
-            // Use an explicit local String construction to avoid type-inference ambiguities.
-            let snippet: String = if result.chars().count() > 120usize {
-                let mut s = result.chars().take(120).collect::<String>();
-                s.push_str("...");
-                s
-            } else {
-                result.clone()
-            };
-            return Some(super::StatusBarLine { text: format!("AI: {}", snippet), sticky });
-        }
+    if let Some(ai) = meta.ai_projection.as_ref()
+        && let Some(result) = ai.result.as_ref()
+    {
+        // Truncate to keep status short and stable.
+        // Use an explicit local String construction to avoid type-inference ambiguities.
+        let snippet: String = if result.chars().count() > 120usize {
+            let mut s = result.chars().take(120).collect::<String>();
+            s.push_str("...");
+            s
+        } else {
+            result.clone()
+        };
+        return Some(super::StatusBarLine { text: format!("AI: {}", snippet), sticky });
     }
 
     // Fallback to mapping refresh reason to a concise single-line message.

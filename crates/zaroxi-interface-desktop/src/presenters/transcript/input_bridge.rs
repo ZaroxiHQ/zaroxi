@@ -1,10 +1,10 @@
-/// Lightweight input-adapter helpers (Phase 4)
-///
-/// These small adapters provide a minimal, well-named API that other parts of
-/// the interface/harness can call to update the engine-owned scene seam.
-/// They simply forward to the engine-scene helpers added for Phase 4 and keep
-/// interface-side wiring explicit and testable without importing internal
-/// engine modules everywhere.
+// Lightweight input-adapter helpers (Phase 4)
+//
+// These small adapters provide a minimal, well-named API that other parts of
+// the interface/harness can call to update the engine-owned scene seam.
+// They simply forward to the engine-scene helpers added for Phase 4 and keep
+// interface-side wiring explicit and testable without importing internal
+// engine modules everywhere.
 
 pub fn handle_key_char(ch: char) {
     zaroxi_core_engine_scene::insert_char(ch);

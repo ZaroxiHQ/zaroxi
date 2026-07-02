@@ -71,8 +71,8 @@ impl buffer_ports::BufferStore for FakeStore {
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            if m.contains_key(&key) {
-                m.insert(key, content);
+            if let std::collections::hash_map::Entry::Occupied(mut e) = m.entry(key) {
+                e.insert(content);
                 Ok(())
             } else {
                 Err(buffer_ports::BufferError("buffer not found".to_string()))
@@ -96,13 +96,13 @@ impl buffer_ports::BufferStore for FakeStore {
             };
             match txn {
                 buffer_ports::TextEdit::Insert { index, text } => {
-                    let bpos = char_to_byte(&s, index);
+                    let bpos = char_to_byte(s, index);
                     s.insert_str(bpos, &text);
                     Ok(())
                 }
                 buffer_ports::TextEdit::Delete { start, end } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, "");
                         Ok(())
@@ -111,8 +111,8 @@ impl buffer_ports::BufferStore for FakeStore {
                     }
                 }
                 buffer_ports::TextEdit::Replace { start, end, text } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, &text);
                         Ok(())
@@ -190,7 +190,7 @@ async fn save_and_load_roundtrip() {
         .load_checkpoint(LoadCheckpointRequest { location: save_res.location.clone() })
         .await
         .expect("load ok");
-    assert!(load_res.session.session_id.0.to_string().len() > 0);
+    assert!(!load_res.session.session_id.0.to_string().is_empty());
 
     // Snapshot the restored session
     let snap = orchestrator2
@@ -201,7 +201,7 @@ async fn save_and_load_roundtrip() {
         .await
         .expect("snapshot ok")
         .snapshot;
-    assert!(snap.opened_buffers.len() >= 1);
+    assert!(!snap.opened_buffers.is_empty());
 }
 
 #[tokio::test]

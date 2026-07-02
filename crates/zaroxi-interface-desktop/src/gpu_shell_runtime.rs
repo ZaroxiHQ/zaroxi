@@ -254,11 +254,8 @@ pub fn apply_action_and_get_regions(action: Action, width: u32, height: u32) -> 
     let mut runtime = ensure_runtime_initialized(width, height);
     // If action targets a specific active buffer, update the fake view so the composition
     // refresh will pick up the change from the view boundary (keeps logic out of the binary).
-    match action {
-        Action::SetActiveBuffer(name) => {
-            runtime.view.set_active_buffer(&name);
-        }
-        _ => {}
+    if let Action::SetActiveBuffer(name) = action {
+        runtime.view.set_active_buffer(&name);
     }
 
     // Run an explicit refresh to update metadata, avoiding borrowing `runtime` across await.

@@ -82,8 +82,8 @@ fn load_query_from_file(language_id: &str, query_type: &str) -> Result<Query, St
         Err(e) => {
             // If we can't read the query file, return an empty query
             eprintln!("DEBUG: Failed to read query file {}: {}", query_path.display(), e);
-            return Ok(Query::new(&language, "")
-                .map_err(|e| format!("Empty query compilation failed: {}", e))?);
+            return Query::new(&language, "")
+                .map_err(|e| format!("Empty query compilation failed: {}", e));
         }
     };
 

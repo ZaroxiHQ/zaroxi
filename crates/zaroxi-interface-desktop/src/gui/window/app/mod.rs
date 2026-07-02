@@ -52,7 +52,6 @@ mod render_state;
 mod tabs;
 mod ui_nodes;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -308,7 +307,7 @@ pub struct GuiApp {
     pub cockpit_status_fingerprint: u64,
     /// Per-line syntax-colored span cache keyed by (line_index, content_fnv_hash).
     /// Avoids recomputing spans for lines whose content didn't change.
-    pub line_syntax_cache: HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    pub line_syntax_cache: crate::gui::window::syntax_color::LineSyntaxCache,
     /// Per-line raw-content fnv hash from the last cache build.
     pub cached_line_hashes: Vec<u64>,
     /// Whether the current file exceeds large-file thresholds (>1000 lines or >100KB).

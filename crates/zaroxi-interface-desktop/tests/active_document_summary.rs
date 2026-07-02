@@ -50,11 +50,11 @@ impl MutableFakeView {
             d.cursor = cursor.clone();
         }
         // Update the visible window to reflect the cursor change.
-        if let Ok(mut w) = self.window.lock() {
-            if let Some(line) = w.lines.get_mut(0) {
-                line.is_cursor_line = true;
-                line.cursor_column = Some(cursor.column as usize);
-            }
+        if let Ok(mut w) = self.window.lock()
+            && let Some(line) = w.lines.get_mut(0)
+        {
+            line.is_cursor_line = true;
+            line.cursor_column = Some(cursor.column as usize);
         }
     }
 

@@ -15,8 +15,8 @@ fn temp_workspace() -> PathBuf {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
     );
     let tmp = base.join(uniq);
-    let root = tmp.join("workspace");
-    root
+
+    tmp.join("workspace")
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn picker_outcome_selected_extracts_path() {
     let picker = FakeFolderPicker::selected(PathBuf::from("/home/user/project"));
     let outcome = picker.pick_folder();
     assert!(outcome.is_selected());
-    assert!(!outcome.reason().is_some());
+    assert!(outcome.reason().is_none());
 }
 
 #[test]

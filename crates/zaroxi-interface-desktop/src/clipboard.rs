@@ -8,6 +8,12 @@ pub struct InMemoryClipboard {
     inner: Arc<Mutex<Option<String>>>,
 }
 
+impl Default for InMemoryClipboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryClipboard {
     pub fn new() -> Self {
         Self { inner: Arc::new(Mutex::new(None)) }

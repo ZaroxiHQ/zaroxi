@@ -285,6 +285,12 @@ pub struct DesktopComposition {
     pub pending_hscroll_px: f32,
 }
 
+impl Default for DesktopComposition {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DesktopComposition {
     pub fn new() -> Self {
         Self {
@@ -467,15 +473,15 @@ impl DesktopComposition {
                     cleaned = cleaned.replacen("/ ", "", 1);
                 }
 
-                if cleaned != combined {
-                    if let Some(first_normal_idx) = line.spans.iter().position(|s| {
+                if cleaned != combined
+                    && let Some(first_normal_idx) = line.spans.iter().position(|s| {
                         matches!(s.kind, crate::view_adapter::InterfaceSpanKind::Normal)
-                    }) {
-                        line.spans[first_normal_idx].text = cleaned.clone();
-                        for sp in line.spans.iter_mut().skip(first_normal_idx + 1) {
-                            if matches!(sp.kind, crate::view_adapter::InterfaceSpanKind::Normal) {
-                                sp.text.clear();
-                            }
+                    })
+                {
+                    line.spans[first_normal_idx].text = cleaned.clone();
+                    for sp in line.spans.iter_mut().skip(first_normal_idx + 1) {
+                        if matches!(sp.kind, crate::view_adapter::InterfaceSpanKind::Normal) {
+                            sp.text.clear();
                         }
                     }
                 }
@@ -489,7 +495,7 @@ impl DesktopComposition {
     }
 
     pub fn get_workspace_id(&self) -> Option<Id> {
-        self.workspace_id.clone()
+        self.workspace_id
     }
 
     pub fn latest_metadata(&self) -> Option<DesktopMetadata> {
@@ -567,47 +573,44 @@ impl DesktopComposition {
     ///   otherwise pick the first buffer (index 0) when any remain.
     /// - If no buffers remain, clear active buffer and active buffer details.
     pub fn close_opened_buffer(&mut self, buffer_id: &crate::ports::BufferId) -> bool {
-        if let Some(m) = self.metadata.as_mut() {
-            if let Some(pos) = m.opened_buffers.iter().position(|it| &it.buffer_id == buffer_id) {
-                let was_active = m.active_buffer.as_ref().map(|b| b == buffer_id).unwrap_or(false);
-                let bid_str = buffer_id.to_string();
-                m.opened_buffers.remove(pos);
-                m.opened_buffer_count = m.opened_buffers.len();
-                self.pending_removed_buffer_ids.push(bid_str);
-                // Also remove from directly-added tracking if present.
-                self.direct_buffer_ids.retain(|b| b != buffer_id);
+        if let Some(m) = self.metadata.as_mut()
+            && let Some(pos) = m.opened_buffers.iter().position(|it| &it.buffer_id == buffer_id)
+        {
+            let was_active = m.active_buffer.as_ref().map(|b| b == buffer_id).unwrap_or(false);
+            let bid_str = buffer_id.to_string();
+            m.opened_buffers.remove(pos);
+            m.opened_buffer_count = m.opened_buffers.len();
+            self.pending_removed_buffer_ids.push(bid_str);
+            // Also remove from directly-added tracking if present.
+            self.direct_buffer_ids.retain(|b| b != buffer_id);
 
-                if was_active {
-                    m.visible_window = None;
-                    if m.opened_buffers.is_empty() {
-                        m.active_buffer = None;
-                        m.active_buffer_details = None;
-                    } else {
-                        let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                        let new_buf = m.opened_buffers[new_idx].buffer_id.clone();
-                        m.active_buffer = Some(new_buf.clone());
-                        let display = m
-                            .opened_buffers
-                            .iter()
-                            .find(|it| it.buffer_id == new_buf)
-                            .and_then(|it| it.display.clone());
-                        m.active_buffer_details = Some(ActiveBufferDetails {
-                            buffer_id: new_buf,
-                            display,
-                            line_count: 0,
-                        });
-                    }
+            if was_active {
+                m.visible_window = None;
+                if m.opened_buffers.is_empty() {
+                    m.active_buffer = None;
+                    m.active_buffer_details = None;
                 } else {
-                    if let Some(ab) = &m.active_buffer {
-                        if !m.opened_buffers.iter().any(|it| &it.buffer_id == ab) {
-                            m.active_buffer = None;
-                            m.active_buffer_details = None;
-                        }
-                    }
+                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                    let new_buf = m.opened_buffers[new_idx].buffer_id.clone();
+                    m.active_buffer = Some(new_buf.clone());
+                    let display = m
+                        .opened_buffers
+                        .iter()
+                        .find(|it| it.buffer_id == new_buf)
+                        .and_then(|it| it.display.clone());
+                    m.active_buffer_details =
+                        Some(ActiveBufferDetails { buffer_id: new_buf, display, line_count: 0 });
                 }
-
-                return true;
+            } else {
+                if let Some(ab) = &m.active_buffer
+                    && !m.opened_buffers.iter().any(|it| &it.buffer_id == ab)
+                {
+                    m.active_buffer = None;
+                    m.active_buffer_details = None;
+                }
             }
+
+            return true;
         }
         false
     }
@@ -630,7 +633,7 @@ impl DesktopComposition {
         }
         let md = self.metadata.get_or_insert_with(|| DesktopMetadata {
             session_id: self.session_id.clone(),
-            workspace_id: self.workspace_id.clone(),
+            workspace_id: self.workspace_id,
             active_buffer: None,
             opened_buffer_count: 0,
             opened_buffers: Vec::new(),
@@ -717,14 +720,13 @@ impl DesktopComposition {
     /// buffer wins on the next refresh.  Used when switching to a
     /// service-backed buffer from a direct (large-file) buffer.
     pub fn clear_direct_active(&mut self) {
-        if let Some(ref mut md) = self.metadata {
-            if let Some(ref active) = md.active_buffer {
-                if self.direct_buffer_ids.contains(active) {
-                    md.active_buffer = None;
-                    for it in &mut md.opened_buffers {
-                        it.active = false;
-                    }
-                }
+        if let Some(ref mut md) = self.metadata
+            && let Some(ref active) = md.active_buffer
+            && self.direct_buffer_ids.contains(active)
+        {
+            md.active_buffer = None;
+            for it in &mut md.opened_buffers {
+                it.active = false;
             }
         }
     }
@@ -735,7 +737,7 @@ impl DesktopComposition {
         } else {
             self.metadata = Some(DesktopMetadata {
                 session_id: self.session_id.clone(),
-                workspace_id: self.workspace_id.clone(),
+                workspace_id: self.workspace_id,
                 active_buffer: None,
                 opened_buffer_count: 0,
                 opened_buffers: Vec::new(),
@@ -874,12 +876,12 @@ impl DesktopComposition {
     }
 
     pub fn load_or_refresh_explorer(&mut self) {
-        if let Some(root) = self.workspace_root_path.clone() {
-            if self.maybe_explorer.is_none() {
-                let mut explorer = WorkspaceExplorer::new();
-                if explorer.load_workspace(&root).is_ok() {
-                    self.maybe_explorer = Some(explorer);
-                }
+        if let Some(root) = self.workspace_root_path.clone()
+            && self.maybe_explorer.is_none()
+        {
+            let mut explorer = WorkspaceExplorer::new();
+            if explorer.load_workspace(&root).is_ok() {
+                self.maybe_explorer = Some(explorer);
             }
         }
         self.refresh_cached_explorer_items();

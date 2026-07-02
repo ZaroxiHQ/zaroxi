@@ -684,6 +684,7 @@ fn paint_plan_includes_text_for_tabs() {
 /// Updated contract:
 /// - draw_text must only modify pixels where glyph coverage exists.
 /// - Other pixels inside the label bbox must remain unchanged.
+///
 /// This test paints a solid distinct background first, executes the plan,
 /// and then asserts that at least one pixel inside the label bbox changed to
 /// something different (glyph was drawn) and that not all pixels were
@@ -863,20 +864,20 @@ fn tab_label_rect_consistent_with_text_bounds() {
     let num = view.tabs.tabs.len() as u32;
     let tab_bar_h = std::cmp::min(14u32, view.chrome.height.saturating_sub(4));
     let tab_bar_y = view.chrome.y + (view.chrome.height.saturating_sub(tab_bar_h) / 2);
-    let base_w = if num > 0 { view.chrome.width / num } else { 0 };
+    let base_w = view.chrome.width.checked_div(num).unwrap_or(0);
     let x0 = view.chrome.x;
     let w = base_w; // single tab so equal width (last-tab remainder logic not necessary here)
 
     // Reconstruct label truncation logic
     let available_for_text =
         if w > pad_x.saturating_mul(2) { w.saturating_sub(pad_x.saturating_mul(2)) } else { 0 };
-    let max_label_chars = if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
+    let max_label_chars = available_for_text.checked_div(glyph_w).unwrap_or(0) as usize;
 
     let expected_label_text = if max_label_chars == 0 {
         String::new()
     } else if txt.chars().count() > max_label_chars {
         let mut s: String = txt.chars().take(max_label_chars).collect();
-        if s.len() > 0 {
+        if !s.is_empty() {
             s.replace_range((s.len() - 1).., ".");
         }
         s

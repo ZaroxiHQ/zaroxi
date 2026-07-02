@@ -133,6 +133,6 @@ mod tests {
         let ratio = scroll.viewport_ratio();
         let prop = scroll.scroll_proportion();
         assert!(ratio > 0.0 && ratio <= 1.0);
-        assert!(prop >= 0.0 && prop <= 1.0);
+        assert!((0.0..=1.0).contains(&prop));
     }
 }

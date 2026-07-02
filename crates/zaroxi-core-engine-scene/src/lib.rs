@@ -76,6 +76,12 @@ pub struct EditorPrimitiveSet {
     pub gutter_labels: Vec<TextPrimitive>,
 }
 
+impl Default for EditorPrimitiveSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EditorPrimitiveSet {
     pub fn new() -> Self {
         EditorPrimitiveSet {
@@ -189,7 +195,7 @@ impl LabelPrimitive {
 /// Bundles rectangle and label primitives into a single coherent result.
 /// Callers receive one `WidgetScene` instead of managing separate primitive
 /// vectors. Intentionally generic — no app concepts, no theme ownership.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct WidgetScene {
     pub rects: Vec<RectPrimitive>,
     pub labels: Vec<LabelPrimitive>,
@@ -202,11 +208,5 @@ impl WidgetScene {
 
     pub fn is_empty(&self) -> bool {
         self.rects.is_empty() && self.labels.is_empty()
-    }
-}
-
-impl Default for WidgetScene {
-    fn default() -> Self {
-        Self { rects: Vec::new(), labels: Vec::new() }
     }
 }

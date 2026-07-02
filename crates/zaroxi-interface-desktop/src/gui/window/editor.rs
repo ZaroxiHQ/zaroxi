@@ -12,7 +12,7 @@ use zaroxi_core_engine_ui::chrome::TabEntry;
 
 use super::destination::WorkbenchDestination;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct EditorContentData {
     pub tab_entries: Vec<TabEntry>,
     pub breadcrumb_label: String,
@@ -39,26 +39,6 @@ pub struct EditorContentData {
     /// Used to set `content_line_offset` on the render block so the
     /// renderer can skip overscan rows directly.
     pub wrap_visual_offset: usize,
-}
-
-impl Default for EditorContentData {
-    fn default() -> Self {
-        Self {
-            tab_entries: Vec::new(),
-            breadcrumb_label: String::new(),
-            editor_body_text: String::new(),
-            editor_spans: None,
-            cursor_line: 0,
-            cursor_col: 0,
-            body_title: String::new(),
-            total_lines: 0,
-            visible_line_range: None,
-            visual_to_logical: Vec::new(),
-            total_visual_lines: 0,
-            chars_per_row: 0,
-            wrap_visual_offset: 0,
-        }
-    }
 }
 
 pub struct EditorPanel;

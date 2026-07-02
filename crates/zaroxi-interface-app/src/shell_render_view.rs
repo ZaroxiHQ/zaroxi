@@ -84,24 +84,24 @@ impl From<&ShellRenderTranscript> for ShellRenderViewModel {
             let line = &t.lines[idx];
 
             // Detect a RenderSection header or any line carrying an id field.
-            if line.contains("RenderSection") || line.contains("id:") {
-                if let Some(id) = ShellRenderViewModel::extract_id_from_line(line) {
-                    // Collect the header and any following lines belonging to this section.
-                    let mut sect_lines: Vec<String> = Vec::new();
-                    sect_lines.push(line.trim_start().to_string());
+            if (line.contains("RenderSection") || line.contains("id:"))
+                && let Some(id) = ShellRenderViewModel::extract_id_from_line(line)
+            {
+                // Collect the header and any following lines belonging to this section.
+                let mut sect_lines: Vec<String> = Vec::new();
+                sect_lines.push(line.trim_start().to_string());
+                idx += 1;
+                while idx < t.lines.len()
+                    && !t.lines[idx].contains("RenderSection")
+                    && ShellRenderViewModel::extract_id_from_line(&t.lines[idx]).is_none()
+                {
+                    sect_lines.push(t.lines[idx].trim_start().to_string());
                     idx += 1;
-                    while idx < t.lines.len()
-                        && !t.lines[idx].contains("RenderSection")
-                        && ShellRenderViewModel::extract_id_from_line(&t.lines[idx]).is_none()
-                    {
-                        sect_lines.push(t.lines[idx].trim_start().to_string());
-                        idx += 1;
-                    }
-
-                    let present = sect_lines.iter().any(|l| !l.trim().is_empty());
-                    sections.push(SectionView { id, present, lines: sect_lines });
-                    continue;
                 }
+
+                let present = sect_lines.iter().any(|l| !l.trim().is_empty());
+                sections.push(SectionView { id, present, lines: sect_lines });
+                continue;
             }
 
             idx += 1;

@@ -48,11 +48,7 @@ pub fn analyze(plan: &ShellDrawPlan) -> RenderConsistencyReport {
 
     // Normalize by stripping the known renderer header if present.
     const HEADER: &str = "ShellDrawPlan:\n";
-    let renderer_plan_part = if renderer_str.starts_with(HEADER) {
-        &renderer_str[HEADER.len()..]
-    } else {
-        &renderer_str[..]
-    };
+    let renderer_plan_part = renderer_str.strip_prefix(HEADER).unwrap_or(&renderer_str);
 
     let mut mismatches = Vec::new();
 
@@ -82,7 +78,7 @@ pub fn analyze(plan: &ShellDrawPlan) -> RenderConsistencyReport {
             &renderer_plan_part[0..std::cmp::min(context_len * 2, renderer_plan_part.len())]
         };
 
-        mismatches.push(format!("textual plan mismatch"));
+        mismatches.push("textual plan mismatch".to_string());
         mismatches.push(format!("transcript_preview=\"{}\"", t_snip.replace("\n", "\\n")));
         mismatches.push(format!("renderer_preview=\"{}\"", r_snip.replace("\n", "\\n")));
     }

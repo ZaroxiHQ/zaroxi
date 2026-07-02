@@ -75,10 +75,10 @@ pub fn resolve_runtime_root() -> Option<PathBuf> {
 /// global process env state. Falls back to the env-free probes when the
 /// override is `None` or is not a directory.
 pub fn resolve_runtime_root_with_override(override_dir: Option<&Path>) -> Option<PathBuf> {
-    if let Some(dir) = override_dir {
-        if dir.is_dir() {
-            return Some(canonical_or(dir.to_path_buf()));
-        }
+    if let Some(dir) = override_dir
+        && dir.is_dir()
+    {
+        return Some(canonical_or(dir.to_path_buf()));
     }
     resolve_runtime_root_without_env()
 }
@@ -86,28 +86,26 @@ pub fn resolve_runtime_root_with_override(override_dir: Option<&Path>) -> Option
 /// Env-independent portion of runtime resolution (steps 2–4).
 fn resolve_runtime_root_without_env() -> Option<PathBuf> {
     // 2. Executable-relative (packaged installs).
-    if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            for rel in [
-                "runtime/treesitter",
-                "../runtime/treesitter",
-                "../share/zaroxi/runtime/treesitter",
-            ] {
-                let cand = dir.join(rel);
-                if cand.is_dir() {
-                    return Some(canonical_or(cand));
-                }
+    if let Ok(exe) = env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        for rel in
+            ["runtime/treesitter", "../runtime/treesitter", "../share/zaroxi/runtime/treesitter"]
+        {
+            let cand = dir.join(rel);
+            if cand.is_dir() {
+                return Some(canonical_or(cand));
             }
+        }
 
-            // Walk up from the executable directory looking for runtime/treesitter.
-            let mut cur = dir.to_path_buf();
-            while let Some(parent) = cur.parent() {
-                let cand = cur.join("runtime/treesitter");
-                if cand.is_dir() {
-                    return Some(canonical_or(cand));
-                }
-                cur = parent.to_path_buf();
+        // Walk up from the executable directory looking for runtime/treesitter.
+        let mut cur = dir.to_path_buf();
+        while let Some(parent) = cur.parent() {
+            let cand = cur.join("runtime/treesitter");
+            if cand.is_dir() {
+                return Some(canonical_or(cand));
             }
+            cur = parent.to_path_buf();
         }
     }
 

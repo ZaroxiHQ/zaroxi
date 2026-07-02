@@ -434,7 +434,7 @@ impl ShellFrame {
 
     /// Deterministic base per-tab width for `num` tabs (last tab may take remainder).
     pub fn base_tab_width(&self, num: u32) -> u32 {
-        if num > 0 { self.chrome.width / num } else { 0 }
+        self.chrome.width.checked_div(num).unwrap_or(0)
     }
 }
 
@@ -643,7 +643,7 @@ pub fn compute_tab_action_target(
 /// perform the mutation (activate the buffer) in their usual outer-layer flow.
 ///
 /// - `apply` is invoked only when a target id is produced and receives the
-///    chosen id (string slice) to pass into the application's activation flow.
+///   chosen id (string slice) to pass into the application's activation flow.
 /// - Returns the chosen id (Some) or None when no target exists (no buffers).
 pub fn apply_tab_action<F>(
     action: TabAction,
@@ -731,9 +731,9 @@ pub fn compute_focus_action_target(
             }
         }
         FocusAction::FocusById { id } => {
-            if !opened.iter().any(|(oid, _)| oid == &id) {
-                None
-            } else if current_focused.map(|a| a == id.as_str()).unwrap_or(false) {
+            if !opened.iter().any(|(oid, _)| oid == &id)
+                || current_focused.map(|a| a == id.as_str()).unwrap_or(false)
+            {
                 None
             } else {
                 Some(id)
@@ -746,7 +746,7 @@ pub fn compute_focus_action_target(
 /// the provided setter when a focus target id is computed.
 ///
 /// - `apply` is invoked only when a target id is produced and receives the
-///    chosen id (string slice) so outer layer can set presenter-facing focus.
+///   chosen id (string slice) so outer layer can set presenter-facing focus.
 pub fn apply_focus_action<F>(
     action: FocusAction,
     opened: &[(String, String)],

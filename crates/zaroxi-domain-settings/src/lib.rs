@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 ///
 /// `System` means the app should follow the OS-level dark/light mode. `Dark`
 /// and `Light` force the corresponding palette regardless of the OS.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemePreference {
+    #[default]
     System,
     Dark,
     Light,
@@ -34,21 +35,16 @@ impl ThemePreference {
     }
 }
 
-impl Default for ThemePreference {
-    fn default() -> Self {
-        Self::System
-    }
-}
-
 /// The user's editor font preference.
 ///
 /// Controls which typeface the renderer uses for editor text and UI text.
 /// `JetBrainsMonoNerdFont` is the workspace-bundled monospace (preferred);
 /// `JetBrainsMono` is the non-nerd variant (fallback). Additional variants
 /// can be added in later phases without changing the Settings model shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FontPreference {
     /// Workspace-bundled JetBrains Mono Nerd Font (patched for icons).
+    #[default]
     JetBrainsMonoNerdFont,
     /// Workspace-bundled JetBrains Mono (no icon patching).
     JetBrainsMono,
@@ -69,42 +65,20 @@ impl FontPreference {
     }
 }
 
-impl Default for FontPreference {
-    fn default() -> Self {
-        Self::JetBrainsMonoNerdFont
-    }
-}
-
 /// Telemetry preference (privacy toggle).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TelemetryPreference {
     /// Whether anonymous usage data is sent.
     pub enabled: bool,
 }
 
-impl Default for TelemetryPreference {
-    fn default() -> Self {
-        Self { enabled: false }
-    }
-}
-
 /// The aggregate settings model — the single source of truth for all user-
 /// facing preferences that affect app behaviour.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub theme: ThemePreference,
     pub font: FontPreference,
     pub telemetry: TelemetryPreference,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            theme: ThemePreference::default(),
-            font: FontPreference::default(),
-            telemetry: TelemetryPreference::default(),
-        }
-    }
 }
 
 impl Settings {

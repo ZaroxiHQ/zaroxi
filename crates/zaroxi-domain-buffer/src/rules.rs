@@ -1,9 +1,9 @@
 use crate::Document;
 
-/// Small domain invariants and validators for buffers.
-///
-/// Keep rules tiny and focused for Phase 4. These are pure functions with
-/// deterministic behavior and no IO, owned by the domain crate.
+// Small domain invariants and validators for buffers.
+//
+// Keep rules tiny and focused for Phase 4. These are pure functions with
+// deterministic behavior and no IO, owned by the domain crate.
 
 /// Validate a document according to minimal domain policies:
 /// - display_name must be non-empty

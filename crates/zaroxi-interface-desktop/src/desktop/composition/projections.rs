@@ -126,10 +126,10 @@ pub fn latest_opened_buffers_summary(
         for it in meta.opened_buffers.iter() {
             // Try to obtain line_count from active_buffer_details when it matches the buffer id.
             let mut line_count: usize = 0;
-            if let Some(abd) = &meta.active_buffer_details {
-                if abd.buffer_id == it.buffer_id {
-                    line_count = abd.line_count;
-                }
+            if let Some(abd) = &meta.active_buffer_details
+                && abd.buffer_id == it.buffer_id
+            {
+                line_count = abd.line_count;
             }
             items.push(super::OpenedBufferItemSummary {
                 buffer_id: it.buffer_id.clone(),

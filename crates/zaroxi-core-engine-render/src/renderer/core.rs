@@ -523,14 +523,14 @@ impl<'a> Renderer<'a> {
         // at the top of the shape list to validate the shape pipeline end-to-end.
         if validation_scene_enabled() {
             // three equal-height horizontal bands covering the full width.
-            let band_h = (height as f32) / 3.0;
+            let band_h = height / 3.0;
             // Top band - red
             push_colored_quad(
                 &mut panel_verts,
                 &mut panel_indices,
                 0.0,
                 0.0,
-                width as f32,
+                width,
                 band_h,
                 [1.0, 0.0, 0.0, 1.0],
                 width,
@@ -543,7 +543,7 @@ impl<'a> Renderer<'a> {
                 &mut panel_indices,
                 0.0,
                 band_h,
-                width as f32,
+                width,
                 band_h,
                 [0.0, 1.0, 0.0, 1.0],
                 width,
@@ -556,7 +556,7 @@ impl<'a> Renderer<'a> {
                 &mut panel_indices,
                 0.0,
                 band_h * 2.0,
-                width as f32,
+                width,
                 band_h,
                 [0.0, 0.0, 1.0, 1.0],
                 width,
@@ -598,58 +598,58 @@ impl<'a> Renderer<'a> {
                 &mut panel_verts,
                 &mut panel_indices,
                 block,
-                &sem,
+                sem,
                 width,
                 height,
             );
 
             // One-shot packed-vertex dump for the first content quad if present.
-            if let Some(base_idx) = base_idx_opt {
-                if panel_verts.len() >= base_idx + 4 {
-                    let v0 = panel_verts[base_idx];
-                    let v1 = panel_verts[base_idx + 1];
-                    let v2 = panel_verts[base_idx + 2];
-                    let v3 = panel_verts[base_idx + 3];
-                    debug!(
-                        "packed block verts: \
+            if let Some(base_idx) = base_idx_opt
+                && panel_verts.len() >= base_idx + 4
+            {
+                let v0 = panel_verts[base_idx];
+                let v1 = panel_verts[base_idx + 1];
+                let v2 = panel_verts[base_idx + 2];
+                let v3 = panel_verts[base_idx + 3];
+                debug!(
+                    "packed block verts: \
                          v0 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v1 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v2 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3}); \
                          v3 pos=({:.3},{:.3}) uv=({:.3},{:.3}) color=({:.3},{:.3},{:.3},{:.3})",
-                        v0.pos[0],
-                        v0.pos[1],
-                        v0.uv[0],
-                        v0.uv[1],
-                        v0.color[0],
-                        v0.color[1],
-                        v0.color[2],
-                        v0.color[3],
-                        v1.pos[0],
-                        v1.pos[1],
-                        v1.uv[0],
-                        v1.uv[1],
-                        v1.color[0],
-                        v1.color[1],
-                        v1.color[2],
-                        v1.color[3],
-                        v2.pos[0],
-                        v2.pos[1],
-                        v2.uv[0],
-                        v2.uv[1],
-                        v2.color[0],
-                        v2.color[1],
-                        v2.color[2],
-                        v2.color[3],
-                        v3.pos[0],
-                        v3.pos[1],
-                        v3.uv[0],
-                        v3.uv[1],
-                        v3.color[0],
-                        v3.color[1],
-                        v3.color[2],
-                        v3.color[3],
-                    );
-                }
+                    v0.pos[0],
+                    v0.pos[1],
+                    v0.uv[0],
+                    v0.uv[1],
+                    v0.color[0],
+                    v0.color[1],
+                    v0.color[2],
+                    v0.color[3],
+                    v1.pos[0],
+                    v1.pos[1],
+                    v1.uv[0],
+                    v1.uv[1],
+                    v1.color[0],
+                    v1.color[1],
+                    v1.color[2],
+                    v1.color[3],
+                    v2.pos[0],
+                    v2.pos[1],
+                    v2.uv[0],
+                    v2.uv[1],
+                    v2.color[0],
+                    v2.color[1],
+                    v2.color[2],
+                    v2.color[3],
+                    v3.pos[0],
+                    v3.pos[1],
+                    v3.uv[0],
+                    v3.uv[1],
+                    v3.color[0],
+                    v3.color[1],
+                    v3.color[2],
+                    v3.color[3],
+                );
             }
 
             // Queue header/title text
@@ -970,7 +970,7 @@ impl<'a> Renderer<'a> {
 
                 if content_w > 0.0 && content_h > 0.0 {
                     let line_h = DEFAULT_FONT_SIZE + 2.0;
-                    let text_y = content_y as f32 - block.content_offset_y;
+                    let text_y = content_y - block.content_offset_y;
                     let line_y = text_y + line as f32 * line_h;
 
                     // Active line highlight background — clipped to content area
@@ -1058,7 +1058,7 @@ impl<'a> Renderer<'a> {
 
             // Log counts per panel
             if RENDER_DEBUG {
-                let quad_count = (panel_verts.len() / 4) as usize;
+                let quad_count = panel_verts.len() / 4;
                 debug!(
                     "block '{}' queued: panel_quads={} panel_verts={} panel_indices={} text_verts={} text_indices={}",
                     block.id,
@@ -1086,7 +1086,7 @@ impl<'a> Renderer<'a> {
             indices.push(idx.wrapping_add(panel_vertex_count));
         }
         // append text verts
-        verts.extend(text_verts.into_iter());
+        verts.extend(text_verts);
 
         // Temporary diagnostics: log geometry counts to help diagnose missing text.
         // These logs are intentionally concise and should be safe in normal runs.
@@ -1123,7 +1123,7 @@ impl<'a> Renderer<'a> {
         // while some text verts may still be in pixel coordinates — use a loose
         // detection to highlight clearly out-of-bounds values.
         let mut oob_count = 0usize;
-        for (_i, v) in verts.iter().enumerate() {
+        for v in verts.iter() {
             if v.pos[0].abs() > 1.05 || v.pos[1].abs() > 1.05 {
                 oob_count += 1;
             }
@@ -1146,8 +1146,7 @@ impl<'a> Renderer<'a> {
         if render_debug_enabled() {
             let max_log = std::cmp::min(8usize, verts.len());
             log::debug!("vertex[0..{}] dump:", max_log);
-            for i in 0..max_log {
-                let v = verts[i];
+            for (i, v) in verts.iter().take(max_log).enumerate() {
                 log::debug!(
                     "v[{}] pos=({:.4}, {:.4}) uv=({:.4}, {:.4}) color=({:.4}, {:.4}, {:.4}, {:.4})",
                     i,
@@ -1171,8 +1170,8 @@ impl<'a> Renderer<'a> {
         if render_debug_enabled() {
             let max_idx_log = std::cmp::min(12usize, indices.len());
             log::debug!("index[0..{}] dump:", max_idx_log);
-            for i in 0..max_idx_log {
-                log::debug!("i[{}] = {}", i, indices[i]);
+            for (i, idx) in indices.iter().take(max_idx_log).enumerate() {
+                log::debug!("i[{}] = {}", i, idx);
             }
         }
 
@@ -1223,7 +1222,7 @@ impl<'a> Renderer<'a> {
                         verts.len().saturating_sub(panel_vertex_count as usize)
                     );
 
-                    if !false {
+                    {
                         if panel_indices_len > 0 {
                             if render_debug_enabled() {
                                 log::debug!(
@@ -1244,10 +1243,6 @@ impl<'a> Renderer<'a> {
                                 panel_indices_len,
                             );
                         }
-                    } else {
-                        if render_debug_enabled() {
-                            log::debug!("false enabled (suboptimal path): skipping shape pass");
-                        }
                     }
 
                     // TEXT PASS: draw glyph/text geometry using the text pipeline and font atlas.
@@ -1256,13 +1251,12 @@ impl<'a> Renderer<'a> {
                     // and backend-text index count (derived from index splits).
                     let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
                     let mut adapter_text_ops: u32 = 0;
-                    if tmp_layout.exists() {
-                        if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
-                            if let Some(rest) = s.strip_prefix("lines=") {
-                                adapter_text_ops =
-                                    rest.split(" | ").filter(|p| !p.is_empty()).count() as u32;
-                            }
-                        }
+                    if tmp_layout.exists()
+                        && let Ok(s) = std::fs::read_to_string(&tmp_layout)
+                        && let Some(rest) = s.strip_prefix("lines=")
+                    {
+                        adapter_text_ops =
+                            rest.split(" | ").filter(|p| !p.is_empty()).count() as u32;
                     }
                     let queued_len = self.text_renderer.queued_len();
                     let backend_text_ops = total_indices_len.saturating_sub(panel_indices_len);
@@ -1367,24 +1361,22 @@ impl<'a> Renderer<'a> {
                 let mut buffer_size: String = "0x0".to_string();
                 let mut text_len: usize = 0;
 
-                if cosmic_present {
-                    if let Ok(s) = std::fs::read_to_string(&tmp_cosmic) {
-                        for line in s.lines() {
-                            if let Some(v) = line.strip_prefix("glyph_count=") {
-                                glyph_count = v.parse::<usize>().unwrap_or(0);
-                            } else if let Some(v) = line.strip_prefix("atlas_entries=") {
-                                atlas_entries = v.parse::<usize>().unwrap_or(0);
-                            } else if let Some(v) = line.strip_prefix("shaped_glyphs_total=") {
-                                shaped_glyphs_total = v.parse::<usize>().unwrap_or(0);
-                            } else if let Some(v) = line.strip_prefix("emitted_glyphs_total=") {
-                                emitted_glyphs_total = v.parse::<usize>().unwrap_or(0);
-                            } else if let Some(v) = line.strip_prefix("font_resolved=") {
-                                font_resolved = v.trim() == "true";
-                            } else if let Some(v) = line.strip_prefix("buffer_size=") {
-                                buffer_size = v.to_string();
-                            } else if let Some(v) = line.strip_prefix("text_len=") {
-                                text_len = v.parse::<usize>().unwrap_or(0);
-                            }
+                if cosmic_present && let Ok(s) = std::fs::read_to_string(&tmp_cosmic) {
+                    for line in s.lines() {
+                        if let Some(v) = line.strip_prefix("glyph_count=") {
+                            glyph_count = v.parse::<usize>().unwrap_or(0);
+                        } else if let Some(v) = line.strip_prefix("atlas_entries=") {
+                            atlas_entries = v.parse::<usize>().unwrap_or(0);
+                        } else if let Some(v) = line.strip_prefix("shaped_glyphs_total=") {
+                            shaped_glyphs_total = v.parse::<usize>().unwrap_or(0);
+                        } else if let Some(v) = line.strip_prefix("emitted_glyphs_total=") {
+                            emitted_glyphs_total = v.parse::<usize>().unwrap_or(0);
+                        } else if let Some(v) = line.strip_prefix("font_resolved=") {
+                            font_resolved = v.trim() == "true";
+                        } else if let Some(v) = line.strip_prefix("buffer_size=") {
+                            buffer_size = v.to_string();
+                        } else if let Some(v) = line.strip_prefix("text_len=") {
+                            text_len = v.parse::<usize>().unwrap_or(0);
                         }
                     }
                 }
@@ -1392,12 +1384,11 @@ impl<'a> Renderer<'a> {
                 // Build a compact frame summary combining adapter/backend/core/cosmic status.
                 let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
                 let mut adapter_text_ops: usize = 0;
-                if tmp_layout.exists() {
-                    if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
-                        if let Some(rest) = s.strip_prefix("lines=") {
-                            adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
-                        }
-                    }
+                if tmp_layout.exists()
+                    && let Ok(s) = std::fs::read_to_string(&tmp_layout)
+                    && let Some(rest) = s.strip_prefix("lines=")
+                {
+                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
                 }
                 let backend_text_ops = total_indices_len.saturating_sub(panel_indices_len) as usize;
                 let core_text_ops = self.text_renderer.queued_len();
@@ -1454,15 +1445,15 @@ impl<'a> Renderer<'a> {
                 if render_debug_enabled() {
                     log::debug!("submitted frame");
                 }
-                if render_timing_enabled() {
-                    if let Some(start) = self.frame_start.take() {
-                        let elapsed = start.elapsed();
-                        eprintln!(
-                            "GUI_RENDER_TIMING: frame={} duration_ms={:.2}",
-                            frame_idx,
-                            elapsed.as_secs_f64() * 1000.0
-                        );
-                    }
+                if render_timing_enabled()
+                    && let Some(start) = self.frame_start.take()
+                {
+                    let elapsed = start.elapsed();
+                    eprintln!(
+                        "GUI_RENDER_TIMING: frame={} duration_ms={:.2}",
+                        frame_idx,
+                        elapsed.as_secs_f64() * 1000.0
+                    );
                 }
                 Ok(())
             }
@@ -1507,7 +1498,7 @@ impl<'a> Renderer<'a> {
                         verts.len().saturating_sub(panel_vertex_count as usize)
                     );
 
-                    if !false {
+                    {
                         if panel_indices_len > 0 {
                             if RENDER_DEBUG {
                                 debug!(
@@ -1528,8 +1519,6 @@ impl<'a> Renderer<'a> {
                                 panel_indices_len,
                             );
                         }
-                    } else {
-                        info!("false enabled (suboptimal path): skipping shape pass");
                     }
 
                     // TEXT PASS
@@ -2004,6 +1993,10 @@ fn element_for_block(id: &str) -> u32 {
 }
 
 /// Shared frame rendering logic used by both Renderer and RenderCore.
+// Rendering pipeline data bundle: mirrors the GPU draw-plan inputs (device,
+// queue, pipelines, buffers, layout, overlays). Grouping into a struct would
+// only relocate the same fields without improving clarity.
+#[allow(clippy::too_many_arguments)]
 fn render_frame_inner(
     device: &Device,
     queue: &mut Queue,
@@ -2055,13 +2048,13 @@ fn render_frame_inner(
     let mut text_indices: Vec<u16> = Vec::new();
 
     if validation_scene_enabled() {
-        let band_h = (height as f32) / 3.0;
+        let band_h = height / 3.0;
         push_colored_quad(
             &mut panel_verts,
             &mut panel_indices,
             0.0,
             0.0,
-            width as f32,
+            width,
             band_h,
             [1.0, 0.0, 0.0, 1.0],
             width,
@@ -2073,7 +2066,7 @@ fn render_frame_inner(
             &mut panel_indices,
             0.0,
             band_h,
-            width as f32,
+            width,
             band_h,
             [0.0, 1.0, 0.0, 1.0],
             width,
@@ -2085,7 +2078,7 @@ fn render_frame_inner(
             &mut panel_indices,
             0.0,
             band_h * 2.0,
-            width as f32,
+            width,
             band_h,
             [0.0, 0.0, 1.0, 1.0],
             width,
@@ -2112,7 +2105,7 @@ fn render_frame_inner(
             &mut panel_verts,
             &mut panel_indices,
             block,
-            &sem,
+            sem,
             width,
             height,
         );
@@ -2392,7 +2385,7 @@ fn render_frame_inner(
             let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
             if content_w > 0.0 && content_h > 0.0 {
                 let line_h = DEFAULT_FONT_SIZE + 2.0;
-                let text_y = content_y as f32 - block.content_offset_y;
+                let text_y = content_y - block.content_offset_y;
                 let line_y = text_y + line as f32 * line_h;
                 if block.highlight_active_line
                     && line_y >= content_y
@@ -2477,7 +2470,7 @@ fn render_frame_inner(
     for idx in text_indices.iter() {
         indices.push(idx.wrapping_add(panel_vertex_count));
     }
-    verts.extend(text_verts.into_iter());
+    verts.extend(text_verts);
 
     let vb_bytes = bytemuck::cast_slice(&verts);
     queue.write_buffer(vertex_buffer, 0, vb_bytes);
@@ -2634,14 +2627,11 @@ fn render_frame_inner(
             if std::env::var("ZAROXI_FRAMEFLOW").as_deref() == Ok("1") {
                 eprintln!("ZAROXI_FRAMEFLOW: queue.submit + present() done");
             }
-            if render_timing_enabled() {
-                if let Some(start) = frame_start.take() {
-                    let elapsed = start.elapsed();
-                    eprintln!(
-                        "GUI_RENDER_TIMING: duration_ms={:.2}",
-                        elapsed.as_secs_f64() * 1000.0
-                    );
-                }
+            if render_timing_enabled()
+                && let Some(start) = frame_start.take()
+            {
+                let elapsed = start.elapsed();
+                eprintln!("GUI_RENDER_TIMING: duration_ms={:.2}", elapsed.as_secs_f64() * 1000.0);
             }
             let perf = if perf_on {
                 RenderPerf {
@@ -2711,16 +2701,14 @@ fn render_frame_inner(
                         panel_indices_len,
                     );
                 }
-                if total_indices_len > panel_indices_len {
-                    if !text_pass_disabled() {
-                        text_renderer.prepare(device, queue)?;
-                        text_renderer.render_pass(
-                            &mut rpass,
-                            text_pipeline,
-                            panel_indices_len,
-                            total_indices_len,
-                        )?;
-                    }
+                if total_indices_len > panel_indices_len && !text_pass_disabled() {
+                    text_renderer.prepare(device, queue)?;
+                    text_renderer.render_pass(
+                        &mut rpass,
+                        text_pipeline,
+                        panel_indices_len,
+                        total_indices_len,
+                    )?;
                 }
             }
             crate::renderer::surface::submit_and_present(queue, encoder, frame_tex);

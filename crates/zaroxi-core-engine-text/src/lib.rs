@@ -43,6 +43,12 @@ pub mod plain {
         pub primitives: Vec<TextPrimitive>,
     }
 
+    impl Default for LineLayout {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl LineLayout {
         pub fn new() -> Self {
             LineLayout { primitives: Vec::new() }

@@ -43,9 +43,9 @@ pub fn region_role(id: &str) -> PanelRole {
 ///
 /// Uses `region_role()` for the string-to-role conversion so the mapping
 /// stays centralized in one place.
-pub fn find_region_by_role<'a>(
-    regions: &'a [crate::gui::ShellRegion],
+pub fn find_region_by_role(
+    regions: &[crate::gui::ShellRegion],
     role: PanelRole,
-) -> Option<&'a crate::gui::ShellRegion> {
+) -> Option<&crate::gui::ShellRegion> {
     regions.iter().find(|r| region_role(r.id) == role)
 }

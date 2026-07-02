@@ -51,10 +51,10 @@ impl WorkspaceLoader {
 
     pub fn create_file(path: &str) -> Result<(), WorkspaceError> {
         let file_path = Path::new(path);
-        if let Some(parent) = file_path.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = file_path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)?;
         }
         fs::File::create(file_path)?;
         Ok(())
@@ -87,10 +87,10 @@ impl WorkspaceLoader {
 
     pub fn save_file(path: &str, content: &str) -> Result<(), WorkspaceError> {
         let file_path = Path::new(path);
-        if let Some(parent) = file_path.parent() {
-            if !parent.exists() {
-                fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = file_path.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent)?;
         }
         fs::write(file_path, content)?;
         Ok(())

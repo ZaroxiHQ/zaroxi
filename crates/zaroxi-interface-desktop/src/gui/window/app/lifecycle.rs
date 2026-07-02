@@ -233,7 +233,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 input::process_mouse_wheel(self, &delta);
                 perf_event("scroll", ev_start, "");
             }
-            WindowEvent::MouseInput { state, button, .. } if button == MouseButton::Left => {
+            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
                 self.on_mouse_left(state);
             }
             WindowEvent::MouseInput { state, button, .. }

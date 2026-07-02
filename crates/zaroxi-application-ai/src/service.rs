@@ -24,6 +24,12 @@ struct AiServiceState {
     pending_proposals: Vec<AiEditProposal>,
 }
 
+impl Default for AiService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AiService {
     /// Create a new AI service.
     pub fn new() -> Self {
@@ -238,14 +244,14 @@ impl AiService {
     /// Applied here to reflect the intent; the caller should perform the real apply.
     pub fn accept_proposal(&self, id: &str) -> Result<AiEditApplyResult, anyhow::Error> {
         let mut state = self.state.lock().unwrap();
-        if let Some(pos) = state.pending_proposals.iter().position(|p| p.id == id) {
-            if let Some(p) = state.pending_proposals.get_mut(pos) {
-                p.state = AiProposalState::Applied;
-                return Ok(AiEditApplyResult {
-                    ok: true,
-                    message: Some("Marked applied (service)".to_string()),
-                });
-            }
+        if let Some(pos) = state.pending_proposals.iter().position(|p| p.id == id)
+            && let Some(p) = state.pending_proposals.get_mut(pos)
+        {
+            p.state = AiProposalState::Applied;
+            return Ok(AiEditApplyResult {
+                ok: true,
+                message: Some("Marked applied (service)".to_string()),
+            });
         }
         Err(anyhow::anyhow!("proposal not found"))
     }

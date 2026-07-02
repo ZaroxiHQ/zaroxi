@@ -18,6 +18,12 @@
 
 use std::collections::HashMap;
 
+/// A run of colored text segments `(text, rgba)` for a single line.
+pub type ColoredSpans = Vec<(String, [f32; 4])>;
+
+/// Per-line syntax-colored span cache keyed by `(line_index, content_fnv_hash)`.
+pub type LineSyntaxCache = HashMap<(usize, u64), ColoredSpans>;
+
 use zaroxi_core_platform_syntax::highlight::{Highlight, HighlightSpan};
 use zaroxi_interface_theme::theme::SemanticColors;
 
@@ -475,10 +481,10 @@ pub fn colorize_source_incremental(
     lines: &[String],
     sem: &SemanticColors,
     spans: &[HighlightSpan],
-    line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    line_syntax_cache: &mut LineSyntaxCache,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
-) -> Vec<(String, [f32; 4])> {
+) -> ColoredSpans {
     let default_color: [f32; 4] =
         [sem.text_primary.r, sem.text_primary.g, sem.text_primary.b, sem.text_primary.a];
 
@@ -501,8 +507,7 @@ pub fn colorize_source_incremental(
     let spans_fingerprint = spans_fingerprint(spans);
 
     let mut byte_offset = 0usize;
-    for i in 0..n {
-        let line = &lines[i];
+    for (i, line) in lines.iter().enumerate() {
         let cur_hash = per_line_hashes.get(i).copied().unwrap_or(0);
         let prev_hash = cached_line_hashes.get(i).copied().unwrap_or(0);
 

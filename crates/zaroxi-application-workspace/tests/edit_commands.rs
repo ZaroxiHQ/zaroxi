@@ -74,8 +74,8 @@ impl buffer_ports::BufferStore for FakeStore {
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            if m.contains_key(&key) {
-                m.insert(key, content);
+            if let std::collections::hash_map::Entry::Occupied(mut e) = m.entry(key) {
+                e.insert(content);
                 Ok(())
             } else {
                 Err(buffer_ports::BufferError("buffer not found".to_string()))
@@ -99,13 +99,13 @@ impl buffer_ports::BufferStore for FakeStore {
             };
             match txn {
                 buffer_ports::TextEdit::Insert { index, text } => {
-                    let bpos = char_to_byte(&s, index);
+                    let bpos = char_to_byte(s, index);
                     s.insert_str(bpos, &text);
                     Ok(())
                 }
                 buffer_ports::TextEdit::Delete { start, end } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, "");
                         Ok(())
@@ -114,8 +114,8 @@ impl buffer_ports::BufferStore for FakeStore {
                     }
                 }
                 buffer_ports::TextEdit::Replace { start, end, text } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, &text);
                         Ok(())
@@ -212,7 +212,7 @@ async fn replace_selection_replaces_selected_text() {
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Ensure buffer has known content
-    let _ = store.set_text(&open_res.buffer_id, "abcd efgh".to_string()).await.expect("set ok");
+    store.set_text(&open_res.buffer_id, "abcd efgh".to_string()).await.expect("set ok");
 
     // Set a selection from char 5..9 ("efgh")
     let sel = Selection {
@@ -261,7 +261,7 @@ async fn delete_selection_removes_selected_text() {
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Set content and selection
-    let _ = store.set_text(&open_res.buffer_id, "hello world".to_string()).await.expect("set ok");
+    store.set_text(&open_res.buffer_id, "hello world".to_string()).await.expect("set ok");
     let sel = Selection {
         anchor: EditorCursor { line: 0, column: 6 },
         active: EditorCursor { line: 0, column: 11 },
@@ -305,7 +305,7 @@ async fn indent_line_inserts_spaces_at_line_start() {
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Set content with two lines
-    let _ = store.set_text(&open_res.buffer_id, "line1\nline2".to_string()).await.expect("set ok");
+    store.set_text(&open_res.buffer_id, "line1\nline2".to_string()).await.expect("set ok");
 
     // Set cursor on second line
     let _ = orchestrator

@@ -23,5 +23,5 @@ use zaroxi_core_engine_render::{ShellDrawPlan, ShellTextRenderer};
 pub fn render_debug_text(plan: &ShellDrawPlan) -> String {
     let renderer = ShellTextRenderer::new();
     let transcript = renderer.render(plan);
-    format!("render debug text:\n{}", transcript.to_string())
+    format!("render debug text:\n{}", transcript)
 }

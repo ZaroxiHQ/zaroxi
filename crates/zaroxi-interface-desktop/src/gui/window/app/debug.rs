@@ -238,7 +238,7 @@ impl GuiApp {
                         .unwrap_or_else(|| "<none>".to_string()),
                 );
             }
-            if let Some(ref tr) = self.render_core.as_ref().and_then(|rc| rc.text_renderer()) {
+            if let Some(tr) = self.render_core.as_ref().and_then(|rc| rc.text_renderer()) {
                 let shape_count = tr.shape_cache_entries();
                 let atlas_count = tr.atlas_entry_count();
                 eprintln!(
@@ -269,22 +269,22 @@ impl GuiApp {
         );
 
         // Glyph caches
-        if let Some(ref core) = self.render_core {
-            if let Some(tr) = core.text_renderer() {
-                let shape_bytes = tr.mem_shape_cache_bytes();
-                let shape_entries = tr.shape_cache_entries();
-                let atlas_entries = tr.atlas_entry_count();
-                let gpu_bytes = tr.mem_gpu_bytes();
-                let shape_kb = shape_bytes / 1024;
-                let gpu_kb = gpu_bytes / 1024;
-                eprintln!(
-                    "  glyphs   : line_shape_cache={} KB ({} entries)  atlas_glyph_cache={} entries  gpu_buffers={} KB",
-                    shape_kb, shape_entries, atlas_entries, gpu_kb
-                );
-                eprintln!(
-                    "            limits: atlas_cap=65536 entries  shape_cache_cap_lru=2048 lines"
-                );
-            }
+        if let Some(ref core) = self.render_core
+            && let Some(tr) = core.text_renderer()
+        {
+            let shape_bytes = tr.mem_shape_cache_bytes();
+            let shape_entries = tr.shape_cache_entries();
+            let atlas_entries = tr.atlas_entry_count();
+            let gpu_bytes = tr.mem_gpu_bytes();
+            let shape_kb = shape_bytes / 1024;
+            let gpu_kb = gpu_bytes / 1024;
+            eprintln!(
+                "  glyphs   : line_shape_cache={} KB ({} entries)  atlas_glyph_cache={} entries  gpu_buffers={} KB",
+                shape_kb, shape_entries, atlas_entries, gpu_kb
+            );
+            eprintln!(
+                "            limits: atlas_cap=65536 entries  shape_cache_cap_lru=2048 lines"
+            );
         }
 
         // Rope / editor buffer
@@ -314,45 +314,45 @@ impl GuiApp {
         );
 
         // Opened buffers
-        if let Some(ref comp) = self.composition {
-            if let Some(ref meta) = comp.metadata {
-                eprintln!(
-                    "  buffers  : opened_count={}  active={}",
-                    meta.opened_buffer_count,
-                    meta.active_buffer
-                        .as_ref()
-                        .map(|b| b.to_string())
-                        .unwrap_or_else(|| "<none>".to_string())
-                );
-            }
+        if let Some(ref comp) = self.composition
+            && let Some(ref meta) = comp.metadata
+        {
+            eprintln!(
+                "  buffers  : opened_count={}  active={}",
+                meta.opened_buffer_count,
+                meta.active_buffer
+                    .as_ref()
+                    .map(|b| b.to_string())
+                    .unwrap_or_else(|| "<none>".to_string())
+            );
         }
 
         // Per-document costs
-        if let Some(ref comp) = self.composition {
-            if let Some(ref meta) = comp.metadata {
-                let doc_count = meta.opened_buffer_count;
-                if doc_count > 0 {
-                    eprintln!("  per_doc  : {doc_count} open document(s):");
-                    for item in meta.opened_buffers.iter() {
-                        let display = &item.display;
-                        let rss_delta = self.editor_buffer.char_count() as u64;
-                        let lines = self.editor_buffer.line_count();
-                        eprintln!(
-                            "            doc[{}] {}: text_kb={} lines={} (single-buffer view)",
-                            item.buffer_id,
-                            display.as_deref().unwrap_or("<none>"),
-                            rss_delta / 1024,
-                            lines,
-                        );
-                    }
-                    let est_overhead = self.editor_buffer.char_count() as f64 / 1024.0;
+        if let Some(ref comp) = self.composition
+            && let Some(ref meta) = comp.metadata
+        {
+            let doc_count = meta.opened_buffer_count;
+            if doc_count > 0 {
+                eprintln!("  per_doc  : {doc_count} open document(s):");
+                for item in meta.opened_buffers.iter() {
+                    let display = &item.display;
+                    let rss_delta = self.editor_buffer.char_count() as u64;
+                    let lines = self.editor_buffer.line_count();
                     eprintln!(
-                        "            total_doc_rope_kb={:.1}  (~{:.1} KB char data)",
-                        est_overhead, est_overhead
+                        "            doc[{}] {}: text_kb={} lines={} (single-buffer view)",
+                        item.buffer_id,
+                        display.as_deref().unwrap_or("<none>"),
+                        rss_delta / 1024,
+                        lines,
                     );
-                } else {
-                    eprintln!("  per_doc  : no documents open");
                 }
+                let est_overhead = self.editor_buffer.char_count() as f64 / 1024.0;
+                eprintln!(
+                    "            total_doc_rope_kb={:.1}  (~{:.1} KB char data)",
+                    est_overhead, est_overhead
+                );
+            } else {
+                eprintln!("  per_doc  : no documents open");
             }
         }
 

@@ -92,40 +92,40 @@ impl TextView {
         for (idx, line) in self.lines.iter().enumerate() {
             // line_number for this entry (1-based) = top_line + idx
             let line_number = self.top_line.saturating_add(idx);
-            if Some(line_number) == self.cursor_line {
-                if let Some(col) = self.cursor_column {
-                    // Special-case insertion at column 0 to preserve an intentional
-                    // single separating space between the marker and the visible text.
-                    // - If the line already starts with a space, do not add another.
-                    // - Otherwise, insert exactly one space after the marker.
-                    // This keeps other cursor positions behaviour unchanged.
-                    if col == 0 {
-                        if line.starts_with(' ') {
-                            out.push(format!("{}{}", marker, line));
-                        } else {
-                            out.push(format!("{} {}", marker, line));
-                        }
-                        continue;
+            if Some(line_number) == self.cursor_line
+                && let Some(col) = self.cursor_column
+            {
+                // Special-case insertion at column 0 to preserve an intentional
+                // single separating space between the marker and the visible text.
+                // - If the line already starts with a space, do not add another.
+                // - Otherwise, insert exactly one space after the marker.
+                // This keeps other cursor positions behaviour unchanged.
+                if col == 0 {
+                    if line.starts_with(' ') {
+                        out.push(format!("{}{}", marker, line));
+                    } else {
+                        out.push(format!("{} {}", marker, line));
                     }
-
-                    // Insert marker at character column `col` (0-based). Be Unicode-safe by using char indices.
-                    let mut acc = String::new();
-                    let mut char_iter = line.chars();
-                    let mut i = 0usize;
-                    while i < col {
-                        if let Some(ch) = char_iter.next() {
-                            acc.push(ch);
-                            i += 1;
-                        } else {
-                            break;
-                        }
-                    }
-                    acc.push_str(marker);
-                    // append remainder
-                    acc.extend(char_iter);
-                    out.push(acc);
                     continue;
                 }
+
+                // Insert marker at character column `col` (0-based). Be Unicode-safe by using char indices.
+                let mut acc = String::new();
+                let mut char_iter = line.chars();
+                let mut i = 0usize;
+                while i < col {
+                    if let Some(ch) = char_iter.next() {
+                        acc.push(ch);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                acc.push_str(marker);
+                // append remainder
+                acc.extend(char_iter);
+                out.push(acc);
+                continue;
             }
             // default
             out.push(line.clone());

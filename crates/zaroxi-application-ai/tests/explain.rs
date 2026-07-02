@@ -2,10 +2,10 @@ use zaroxi_application_ai::ports;
 use zaroxi_application_ai::ports::AiClient;
 use zaroxi_kernel_types::Id;
 
-/// Simple unit tests for the application-ai ports and request/response contract.
-///
-/// These tests ensure the explain-buffer request shape is usable and that
-/// adapters implementing AiClient can be exercised in isolation.
+// Simple unit tests for the application-ai ports and request/response contract.
+//
+// These tests ensure the explain-buffer request shape is usable and that
+// adapters implementing AiClient can be exercised in isolation.
 
 struct FakeAi;
 impl ports::AiClient for FakeAi {

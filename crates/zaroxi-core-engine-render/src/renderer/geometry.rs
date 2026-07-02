@@ -1,12 +1,12 @@
 use wgpu;
-/// Shared geometry helpers for the renderer.
-///
-/// This module contains small, broadly useful types and helpers that are
-/// shared between shape and text code paths: the Vertex POD, vertex buffer
-/// layout descriptor, NDC conversion helper and a compact quad packing helper.
-///
-/// Move-only: these functions are extracted from core.rs to keep geometry
-/// concerns isolated during the refactor.
+// Shared geometry helpers for the renderer.
+//
+// This module contains small, broadly useful types and helpers that are
+// shared between shape and text code paths: the Vertex POD, vertex buffer
+// layout descriptor, NDC conversion helper and a compact quad packing helper.
+//
+// Move-only: these functions are extracted from core.rs to keep geometry
+// concerns isolated during the refactor.
 
 /// Vertex for textured quad (text pipeline) and shaped quad (shape pipeline).
 /// The `uv` field carries texture coordinates for text quads and local quad

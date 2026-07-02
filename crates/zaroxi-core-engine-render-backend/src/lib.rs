@@ -12,7 +12,6 @@ Responsibilities:
 - Provide resize handling and a render_frame(scene) entry that presents a frame
 */
 
-use bytemuck;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wgpu::{CommandEncoderDescriptor, PresentMode, TextureUsages, util::DeviceExt};
 use zaroxi_core_engine_style::StyleTokens;
@@ -234,144 +233,138 @@ impl<'a> RenderBackend<'a> {
                 }
 
                 // If overlay rects requested and we have a pipeline, draw them as colored quads.
-                if let Some(rects) = overlay_rects {
-                    if !rects.is_empty() {
-                        // Runtime trace: detect whether the interface layer recorded a text layout
-                        // marker for the canonical label ("Zaroxi") and whether the Cosmic prepare
-                        // marker exists. We use temp-file markers created by the interface and
-                        // renderer crates to avoid introducing cross-crate type dependencies.
-                        let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
-                        let tmp_cosmic =
-                            std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
-                        let layout_present = tmp_layout.exists();
-                        let cosmic_present = tmp_cosmic.exists();
-                        eprintln!(
-                            "GUI_SHELL_TRACE: clear_present_once overlay_rects_count={} layout_present={} cosmic_prepare_present={}",
-                            rects.len(),
-                            layout_present,
-                            cosmic_present
-                        );
+                if let Some(rects) = overlay_rects
+                    && !rects.is_empty()
+                {
+                    // Runtime trace: detect whether the interface layer recorded a text layout
+                    // marker for the canonical label ("Zaroxi") and whether the Cosmic prepare
+                    // marker exists. We use temp-file markers created by the interface and
+                    // renderer crates to avoid introducing cross-crate type dependencies.
+                    let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
+                    let tmp_cosmic = std::env::temp_dir().join("zaroxi_gui_trace_cosmic_prepare");
+                    let layout_present = tmp_layout.exists();
+                    let cosmic_present = tmp_cosmic.exists();
+                    eprintln!(
+                        "GUI_SHELL_TRACE: clear_present_once overlay_rects_count={} layout_present={} cosmic_prepare_present={}",
+                        rects.len(),
+                        layout_present,
+                        cosmic_present
+                    );
 
-                        // Additional backend-level adapter tracing: try to extract adapter-side label count
-                        // from the adapter marker file written by the interface (if present).
-                        let mut adapter_text_ops: usize = 0;
-                        if layout_present {
-                            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
-                                if let Some(rest) = s.strip_prefix("lines=") {
-                                    adapter_text_ops =
-                                        rest.split(" | ").filter(|p| !p.is_empty()).count();
-                                }
+                    // Additional backend-level adapter tracing: try to extract adapter-side label count
+                    // from the adapter marker file written by the interface (if present).
+                    let mut adapter_text_ops: usize = 0;
+                    if layout_present
+                        && let Ok(s) = std::fs::read_to_string(&tmp_layout)
+                        && let Some(rest) = s.strip_prefix("lines=")
+                    {
+                        adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
+                    }
+                    let overlay_rects_count = rects.len();
+                    let forwarded = layout_present && overlay_rects_count > 0;
+                    eprintln!(
+                        "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} overlay_rects={} forwarded={}",
+                        adapter_text_ops, overlay_rects_count, forwarded
+                    );
+
+                    // If the interface produced layout for "Zaroxi" but the Cosmic prepare
+                    // marker has not been observed, we are likely still on the overlay
+                    // rectangle fallback path.
+                    //
+                    // DO NOT abort startup: instead emit a loud diagnostic and a per-frame
+                    // fallback counter so developers can observe the mismatch without
+                    // killing the process. Also write a small temp marker so other tools
+                    // can correlate the fallback activity.
+                    if layout_present && !cosmic_present {
+                        let cnt = GUI_TEXT_FALLBACK_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
+                        eprintln!(
+                            "GUI_TEXT_STAGE_2_BACKEND: detected layout for 'Zaroxi' but no cosmic prepare; fallback_count={} overlay_rects_count={}",
+                            cnt,
+                            rects.len()
+                        );
+                        // write a small marker to temp so other processes/crates can observe fallback counts.
+                        let _ = std::fs::write(
+                            std::env::temp_dir().join("zaroxi_gui_trace_fallback"),
+                            format!("count={}\nrects={}\n", cnt, rects.len()),
+                        );
+                        // Continue with overlay rects; do not return/abort startup so we can observe multiple frames.
+                    }
+
+                    // Build vertex list for rects (two triangles per rect).
+                    let mut vertices: Vec<Vertex> = Vec::new();
+                    for r in rects.iter() {
+                        let left = r.x as f32;
+                        let top = r.y as f32;
+                        let right = left + r.width as f32;
+                        let bottom = top + r.height as f32;
+
+                        let to_ndc = |px: f32, py: f32| -> [f32; 2] {
+                            let nx = (px / (backend.surface_config.width as f32)) * 2.0 - 1.0;
+                            let ny = 1.0 - (py / (backend.surface_config.height as f32)) * 2.0;
+                            [nx, ny]
+                        };
+
+                        let tl = to_ndc(left, top);
+                        let tr = to_ndc(right, top);
+                        let br = to_ndc(right, bottom);
+                        let bl = to_ndc(left, bottom);
+
+                        let clr = [
+                            r.color.r as f32,
+                            r.color.g as f32,
+                            r.color.b as f32,
+                            r.color.a as f32,
+                        ];
+
+                        vertices.push(Vertex { position: tl, color: clr });
+                        vertices.push(Vertex { position: tr, color: clr });
+                        vertices.push(Vertex { position: br, color: clr });
+
+                        vertices.push(Vertex { position: tl, color: clr });
+                        vertices.push(Vertex { position: br, color: clr });
+                        vertices.push(Vertex { position: bl, color: clr });
+                    }
+
+                    if let Some(pipeline_ref) = &backend.pipeline {
+                        // Create vertex buffer and draw using the pipeline.
+                        let vertex_buffer =
+                            backend.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("zaroxi-clear-rect-verts"),
+                                contents: bytemuck::cast_slice(&vertices),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            });
+
+                        {
+                            let mut rpass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("zaroxi-clear-overlay-pass"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &view,
+                                        resolve_target: None,
+                                        depth_slice: None,
+                                        ops: wgpu::Operations {
+                                            // Load preserves the background clear we just did.
+                                            load: wgpu::LoadOp::Load,
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                    })],
+                                    depth_stencil_attachment: None,
+                                    multiview_mask: None,
+                                    occlusion_query_set: None,
+                                    timestamp_writes: None,
+                                });
+
+                            rpass.set_pipeline(pipeline_ref);
+                            rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                            let vert_count = vertices.len() as u32;
+                            if vert_count > 0 {
+                                rpass.draw(0..vert_count, 0..1);
                             }
                         }
-                        let overlay_rects_count = rects.len();
-                        let forwarded = layout_present && overlay_rects_count > 0;
+                    } else {
                         eprintln!(
-                            "GUI_TEXT_STAGE_2_BACKEND: adapter_text_ops={} overlay_rects={} forwarded={}",
-                            adapter_text_ops, overlay_rects_count, forwarded
+                            "clear_present_once: pipeline missing; skipping overlay rect draws"
                         );
-
-                        // If the interface produced layout for "Zaroxi" but the Cosmic prepare
-                        // marker has not been observed, we are likely still on the overlay
-                        // rectangle fallback path.
-                        //
-                        // DO NOT abort startup: instead emit a loud diagnostic and a per-frame
-                        // fallback counter so developers can observe the mismatch without
-                        // killing the process. Also write a small temp marker so other tools
-                        // can correlate the fallback activity.
-                        if layout_present && !cosmic_present {
-                            let cnt = GUI_TEXT_FALLBACK_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
-                            eprintln!(
-                                "GUI_TEXT_STAGE_2_BACKEND: detected layout for 'Zaroxi' but no cosmic prepare; fallback_count={} overlay_rects_count={}",
-                                cnt,
-                                rects.len()
-                            );
-                            // write a small marker to temp so other processes/crates can observe fallback counts.
-                            let _ = std::fs::write(
-                                std::env::temp_dir().join("zaroxi_gui_trace_fallback"),
-                                format!("count={}\nrects={}\n", cnt, rects.len()),
-                            );
-                            // Continue with overlay rects; do not return/abort startup so we can observe multiple frames.
-                        }
-
-                        // Build vertex list for rects (two triangles per rect).
-                        let mut vertices: Vec<Vertex> = Vec::new();
-                        for r in rects.iter() {
-                            let left = r.x as f32;
-                            let top = r.y as f32;
-                            let right = left + r.width as f32;
-                            let bottom = top + r.height as f32;
-
-                            let to_ndc = |px: f32, py: f32| -> [f32; 2] {
-                                let nx = (px / (backend.surface_config.width as f32)) * 2.0 - 1.0;
-                                let ny = 1.0 - (py / (backend.surface_config.height as f32)) * 2.0;
-                                [nx, ny]
-                            };
-
-                            let tl = to_ndc(left, top);
-                            let tr = to_ndc(right, top);
-                            let br = to_ndc(right, bottom);
-                            let bl = to_ndc(left, bottom);
-
-                            let clr = [
-                                r.color.r as f32,
-                                r.color.g as f32,
-                                r.color.b as f32,
-                                r.color.a as f32,
-                            ];
-
-                            vertices.push(Vertex { position: tl, color: clr });
-                            vertices.push(Vertex { position: tr, color: clr });
-                            vertices.push(Vertex { position: br, color: clr });
-
-                            vertices.push(Vertex { position: tl, color: clr });
-                            vertices.push(Vertex { position: br, color: clr });
-                            vertices.push(Vertex { position: bl, color: clr });
-                        }
-
-                        if let Some(pipeline_ref) = &backend.pipeline {
-                            // Create vertex buffer and draw using the pipeline.
-                            let vertex_buffer = backend.device.create_buffer_init(
-                                &wgpu::util::BufferInitDescriptor {
-                                    label: Some("zaroxi-clear-rect-verts"),
-                                    contents: bytemuck::cast_slice(&vertices),
-                                    usage: wgpu::BufferUsages::VERTEX,
-                                },
-                            );
-
-                            {
-                                let mut rpass =
-                                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                        label: Some("zaroxi-clear-overlay-pass"),
-                                        color_attachments: &[Some(
-                                            wgpu::RenderPassColorAttachment {
-                                                view: &view,
-                                                resolve_target: None,
-                                                depth_slice: None,
-                                                ops: wgpu::Operations {
-                                                    // Load preserves the background clear we just did.
-                                                    load: wgpu::LoadOp::Load,
-                                                    store: wgpu::StoreOp::Store,
-                                                },
-                                            },
-                                        )],
-                                        depth_stencil_attachment: None,
-                                        multiview_mask: None,
-                                        occlusion_query_set: None,
-                                        timestamp_writes: None,
-                                    });
-
-                                rpass.set_pipeline(pipeline_ref);
-                                rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                                let vert_count = vertices.len() as u32;
-                                if vert_count > 0 {
-                                    rpass.draw(0..vert_count, 0..1);
-                                }
-                            }
-                        } else {
-                            eprintln!(
-                                "clear_present_once: pipeline missing; skipping overlay rect draws"
-                            );
-                        }
                     }
                 }
 
@@ -389,7 +382,7 @@ impl<'a> RenderBackend<'a> {
         //
         // Creation is wrapped so any failure yields `None` and preserves the
         // historic clear-only fallback.
-        let pipeline = (|| {
+        let pipeline = {
             // WGSL: per-vertex position in NDC and color
             // Load WGSL shader from a dedicated file to keep the Rust source concise.
             // The shader lives at `src/shaders/rect.wgsl` relative to this file.
@@ -473,7 +466,7 @@ impl<'a> RenderBackend<'a> {
                     None
                 }
             }
-        })();
+        };
 
         Self {
             device,
@@ -542,12 +535,11 @@ impl<'a> RenderBackend<'a> {
         // Trace what the backend observes on each frame (adapter marker => adapter_text_ops).
         let tmp_layout = std::env::temp_dir().join("zaroxi_gui_trace_layout");
         let mut adapter_text_ops: usize = 0;
-        if tmp_layout.exists() {
-            if let Ok(s) = std::fs::read_to_string(&tmp_layout) {
-                if let Some(rest) = s.strip_prefix("lines=") {
-                    adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
-                }
-            }
+        if tmp_layout.exists()
+            && let Ok(s) = std::fs::read_to_string(&tmp_layout)
+            && let Some(rest) = s.strip_prefix("lines=")
+        {
+            adapter_text_ops = rest.split(" | ").filter(|p| !p.is_empty()).count();
         }
         let backend_text_ops = ui_rects.len();
         let forwarded = adapter_text_ops > 0 && backend_text_ops > 0;

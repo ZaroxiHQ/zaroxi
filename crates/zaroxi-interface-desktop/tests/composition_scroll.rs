@@ -8,13 +8,15 @@ use zaroxi_interface_desktop::desktop::composition::state::DesktopMetadata;
 
 fn make_composition(total_lines: usize) -> DesktopComposition {
     let mut comp = DesktopComposition::new();
-    let mut meta = DesktopMetadata::default();
-    meta.editor_viewport_line_count = Some(10);
-    meta.active_buffer_details = Some(ActiveBufferDetails {
-        buffer_id: BufferId::from("buf:test"),
-        display: None,
-        line_count: total_lines,
-    });
+    let meta = DesktopMetadata {
+        editor_viewport_line_count: Some(10),
+        active_buffer_details: Some(ActiveBufferDetails {
+            buffer_id: BufferId::from("buf:test"),
+            display: None,
+            line_count: total_lines,
+        }),
+        ..Default::default()
+    };
     comp.metadata = Some(meta);
     comp
 }

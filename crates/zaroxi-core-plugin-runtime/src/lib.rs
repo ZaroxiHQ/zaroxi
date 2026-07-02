@@ -8,6 +8,9 @@ pub mod host {
         /// Name of the plugin.
         fn name(&self) -> &'static str;
         /// Initialize plugin; returns opaque boxed extension or unit.
+        // Placeholder plugin API: the `()` error is a deliberate stub until a
+        // concrete plugin error type lands.
+        #[allow(clippy::result_unit_err)]
         fn initialize(&self) -> Result<(), ()>;
         /// Shutdown plugin.
         fn shutdown(&self);

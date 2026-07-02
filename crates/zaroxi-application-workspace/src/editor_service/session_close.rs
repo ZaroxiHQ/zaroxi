@@ -79,7 +79,7 @@ impl EditorService {
                         let b = arc.lock().unwrap();
                         b.to_text()
                     };
-                    if let Err(_) = fs::write(path, text.as_bytes()) {
+                    if fs::write(path, text.as_bytes()).is_err() {
                         failed.push((*i, Some(path.clone())));
                     }
                 }

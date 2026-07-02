@@ -138,7 +138,7 @@ impl GpuPaintPlan {
 
         // Marker bar in chrome (right edge)
         if let Some(ref m) = v.marker {
-            let b0 = m.as_bytes().get(0).copied().unwrap_or(0);
+            let b0 = m.as_bytes().first().copied().unwrap_or(0);
             let r = b0;
             let g = 255u8.wrapping_sub(b0);
             let b = b0.wrapping_div(2);
@@ -157,7 +157,7 @@ impl GpuPaintPlan {
 
         // chrome_label small centered rect + readable text
         if let Some(ref label) = v.chrome_label {
-            let b0 = label.as_bytes().get(0).copied().unwrap_or(1);
+            let b0 = label.as_bytes().first().copied().unwrap_or(1);
             let color = [b0, 200u8.wrapping_sub(b0), b0.wrapping_add(40), 255u8];
 
             let max_w = frame.chrome.width.saturating_sub(16);
@@ -169,10 +169,7 @@ impl GpuPaintPlan {
                 // Smarter chrome label sizing: ensure a minimum readable height and
                 // vertically center the label box inside the chrome. This tightens the
                 // chrome layout and provides balanced vertical placement for the label.
-                let box_h = std::cmp::max(
-                    8u32,
-                    std::cmp::min(frame.chrome.height.saturating_sub(4), 18u32),
-                );
+                let box_h = frame.chrome.height.saturating_sub(4).clamp(8u32, 18u32);
                 let box_y = frame.chrome.y + (frame.chrome.height.saturating_sub(box_h) / 2);
 
                 if box_h > 0
@@ -211,8 +208,8 @@ impl GpuPaintPlan {
         // inside the bottom status/footer region. We keep a tiny colored bar for a compact
         // indicator (backwards-compatible) and also emit a Text op for the status string.
         if let Some(ref status) = v.status_text {
-            let b0 = status.as_bytes().get(0).copied().unwrap_or(2);
-            let color = [255u8.wrapping_sub(b0), b0, 120u8 as u8, 255u8];
+            let b0 = status.as_bytes().first().copied().unwrap_or(2);
+            let color = [255u8.wrapping_sub(b0), b0, 120_u8, 255u8];
 
             // Small indicator bar on the right (visual token).
             let bar_w = 18u32.min(frame.status.width);
@@ -253,7 +250,7 @@ impl GpuPaintPlan {
 
         // content_preview: render the textual preview inside the content region.
         if let Some(ref preview) = v.content_preview {
-            let b0 = preview.as_bytes().get(0).copied().unwrap_or(3);
+            let b0 = preview.as_bytes().first().copied().unwrap_or(3);
             let _color = [100u8, 100u8.wrapping_add(b0), 200u8.wrapping_sub(b0), 255u8];
 
             let text_x = frame.content.x + 10;
@@ -344,14 +341,13 @@ impl GpuPaintPlan {
                 } else {
                     0
                 };
-                let max_label_chars =
-                    if glyph_w > 0 { (available_for_text / glyph_w) as usize } else { 0 };
+                let max_label_chars = available_for_text.checked_div(glyph_w).unwrap_or(0) as usize;
 
                 let label_text = if max_label_chars == 0 {
                     String::new()
                 } else if display.chars().count() > max_label_chars {
                     let mut s: String = display.chars().take(max_label_chars).collect();
-                    if s.len() > 0 {
+                    if !s.is_empty() {
                         s.replace_range((s.len() - 1).., ".");
                     }
                     s
@@ -509,7 +505,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
         // opaque background fill here. The cosmic renderer must only write glyph pixels.
         if std::env::var("ZAROXI_DEBUG_TEXT").is_ok() {
             eprintln!(
-                "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {}) glyph_bounds=({}-{}, {}-{}) background_fill_performed={} blend=\"src_over(out = src*alpha + dst*(1-alpha))\"",
+                "DRAW_TEXT_DEBUG: text=\"{}\" origin=({}, {}) clip=({}, {}) fb=({}, {}) glyph_bounds=({}-{}, {}-{}) background_fill_performed=false blend=\"src_over(out = src*alpha + dst*(1-alpha))\"",
                 text,
                 x,
                 y,
@@ -520,8 +516,7 @@ pub fn execute_paint_plan(plan: &GpuPaintPlan, buffer: &mut [u8], width: u32, he
                 glyph_bounds_x0,
                 glyph_bounds_x1,
                 glyph_bounds_y0,
-                glyph_bounds_y1,
-                /* background_fill_performed */ false
+                glyph_bounds_y1
             );
         }
 

@@ -91,10 +91,10 @@ impl From<zaroxi_core_engine_scene::ShellSceneModel> for ShellLayoutInput {
         }
 
         // Status block when a viewport summary exists and is non-empty
-        if let Some(summary) = scene.viewport_summary.clone() {
-            if !summary.is_empty() {
-                blocks.push(LayoutBlock::Status(StatusBlock { summary }));
-            }
+        if let Some(summary) = scene.viewport_summary.clone()
+            && !summary.is_empty()
+        {
+            blocks.push(LayoutBlock::Status(StatusBlock { summary }));
         }
 
         ShellLayoutInput {

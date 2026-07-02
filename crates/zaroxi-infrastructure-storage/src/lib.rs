@@ -13,6 +13,12 @@ use std::path::PathBuf;
 /// higher-layer transitive dependencies.
 pub struct FileSystemStorage;
 
+impl Default for FileSystemStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystemStorage {
     pub fn new() -> Self {
         FileSystemStorage

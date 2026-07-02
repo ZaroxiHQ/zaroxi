@@ -107,7 +107,7 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 app.editor_group.activate_by_path(&vt.path);
                 // Large-file (direct/PieceTable) buffers: activate locally.
                 let bid = crate::ports::BufferId(buffer_id.clone());
-                if comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                if comp.direct_buffer_ids.contains(&bid) {
                     comp.set_direct_buffer_active(bid.clone());
                 } else {
                     comp.clear_direct_active();
@@ -197,7 +197,7 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 // Detect single vs double-click for preview/pinned intent.
                 let now = std::time::Instant::now();
                 let click_idx = resolved;
-                let is_double = app.last_explorer_click.map_or(false, |(t, idx, _)| {
+                let is_double = app.last_explorer_click.is_some_and(|(t, idx, _)| {
                     now.duration_since(t).as_millis() < 400 && idx == click_idx
                 });
                 app.last_explorer_click = Some((now, click_idx, app.open_token));
@@ -214,7 +214,7 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                 if already_pinned {
                     // File is already pinned in EditorGroup. Activate it directly.
                     let bid = crate::ports::BufferId(format!("buf:{}", path_str));
-                    if comp.direct_buffer_ids.iter().any(|b| *b == bid) {
+                    if comp.direct_buffer_ids.contains(&bid) {
                         comp.set_direct_buffer_active(bid.clone());
                         app.open_intent = Some(open_pipeline::OpenIntent::ActivateExisting);
                     } else {

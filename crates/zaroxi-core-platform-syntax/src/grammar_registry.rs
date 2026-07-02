@@ -662,8 +662,6 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
             // Try to find the library with alternative naming (static library)
             let alt_lib = if cfg!(windows) {
                 out_path.join(format!("{}.lib", lib_name))
-            } else if cfg!(target_os = "macos") {
-                out_path.join(format!("lib{}.a", lib_name))
             } else {
                 out_path.join(format!("lib{}.a", lib_name))
             };

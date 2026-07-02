@@ -31,21 +31,15 @@ pub enum FileTreeNode {
 impl FileTreeNode {
     /// Create a directory node.
     pub fn directory(path: PathBuf) -> Self {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "".to_string());
+        let name =
+            path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()).unwrap_or_default();
         Self::Directory { path, name, children: Vec::new() }
     }
 
     /// Create a file node.
     pub fn file(path: PathBuf, size: u64) -> Self {
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "".to_string());
+        let name =
+            path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()).unwrap_or_default();
         let extension = path.extension().and_then(|e| e.to_str()).map(|s| s.to_string());
         Self::File { path, name, extension, size }
     }

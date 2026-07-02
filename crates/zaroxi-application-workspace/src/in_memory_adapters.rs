@@ -25,6 +25,12 @@ use zaroxi_core_editor_buffer::ports::{BufferError, BufferId, BufferStore, TextE
 /// - Keep implementation minimal and deterministic for harness/tests.
 pub struct InMemoryWorkspaceRepo {}
 
+impl Default for InMemoryWorkspaceRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryWorkspaceRepo {
     pub fn new() -> Self {
         InMemoryWorkspaceRepo {}
@@ -54,6 +60,12 @@ impl WorkspaceRepository for InMemoryWorkspaceRepo {
 /// concrete buffer backend in tests and the harness.
 pub struct InMemoryBufferStore {
     inner: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl Default for InMemoryBufferStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InMemoryBufferStore {
@@ -89,8 +101,8 @@ impl BufferStore for InMemoryBufferStore {
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            if m.contains_key(&key) {
-                m.insert(key, content);
+            if let std::collections::hash_map::Entry::Occupied(mut e) = m.entry(key) {
+                e.insert(content);
                 Ok(())
             } else {
                 Err(BufferError("buffer not found".to_string()))
@@ -114,13 +126,13 @@ impl BufferStore for InMemoryBufferStore {
             };
             match txn {
                 TextEdit::Insert { index, text } => {
-                    let bpos = char_to_byte(&s, index);
+                    let bpos = char_to_byte(s, index);
                     s.insert_str(bpos, &text);
                     Ok(())
                 }
                 TextEdit::Delete { start, end } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, "");
                         Ok(())
@@ -129,8 +141,8 @@ impl BufferStore for InMemoryBufferStore {
                     }
                 }
                 TextEdit::Replace { start, end, text } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, &text);
                         Ok(())

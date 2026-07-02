@@ -39,18 +39,18 @@ pub(crate) fn latest_command_bar(
 }
 
 pub(crate) fn select_next_command(comp: &mut super::DesktopComposition) {
-    if let Some(cb) = comp.command_bar.as_mut() {
-        if !cb.commands.is_empty() {
-            cb.selected = select_next_command_index(cb.selected, cb.commands.len());
-        }
+    if let Some(cb) = comp.command_bar.as_mut()
+        && !cb.commands.is_empty()
+    {
+        cb.selected = select_next_command_index(cb.selected, cb.commands.len());
     }
 }
 
 pub(crate) fn select_prev_command(comp: &mut super::DesktopComposition) {
-    if let Some(cb) = comp.command_bar.as_mut() {
-        if !cb.commands.is_empty() {
-            cb.selected = select_prev_command_index(cb.selected, cb.commands.len());
-        }
+    if let Some(cb) = comp.command_bar.as_mut()
+        && !cb.commands.is_empty()
+    {
+        cb.selected = select_prev_command_index(cb.selected, cb.commands.len());
     }
 }
 

@@ -62,12 +62,9 @@ fn end_to_end_selection_copy_paste_and_transcript_reflects_selection() {
             if row < sline0 || row > eline0 {
                 continue;
             }
-            let sel_start_col = if row == sline0 { scol as u32 } else { 0 };
-            let sel_end_col = if row == eline0 {
-                ecol as u32
-            } else {
-                snapshot.lines[row].chars().count() as u32
-            };
+            let sel_start_col = if row == sline0 { scol } else { 0 };
+            let sel_end_col =
+                if row == eline0 { ecol } else { snapshot.lines[row].chars().count() as u32 };
             if sel_end_col <= sel_start_col {
                 continue;
             }

@@ -28,6 +28,12 @@ use zaroxi_interface_app::ShellRenderViewModel;
 #[derive(Debug, Clone, Copy)]
 pub struct ShellRenderPresenter;
 
+impl Default for ShellRenderPresenter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShellRenderPresenter {
     /// Create a new presenter instance.
     pub fn new() -> Self {
@@ -505,6 +511,12 @@ pub mod layout {
         pub top: Vec<UiBlock>,
         pub main: Vec<UiBlock>,
         pub bottom: Vec<UiBlock>,
+    }
+
+    impl Default for SplitLayout {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     impl SplitLayout {

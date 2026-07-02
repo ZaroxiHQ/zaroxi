@@ -97,7 +97,7 @@ pub fn read_vsz_bytes() -> Option<u64> {
     for line in status.lines() {
         if let Some(val) = line.strip_prefix("VmSize:") {
             // Format: "VmSize:  123456 kB"
-            let kb: u64 = val.trim().split_whitespace().next()?.parse().ok()?;
+            let kb: u64 = val.split_whitespace().next()?.parse().ok()?;
             return Some(kb.saturating_mul(1024));
         }
     }
@@ -173,7 +173,7 @@ impl MemoryMonitor {
     /// Advance the frame counter; returns `true` when a sample is due this frame.
     pub fn tick(&mut self) -> bool {
         self.frame = self.frame.wrapping_add(1);
-        self.frame % self.sample_interval_frames == 0
+        self.frame.is_multiple_of(self.sample_interval_frames)
     }
 
     /// Classify `rss_bytes` against the configured budget/thresholds, caching

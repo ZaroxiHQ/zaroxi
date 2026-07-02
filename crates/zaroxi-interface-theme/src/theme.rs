@@ -6,13 +6,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 /// Theme variants for Zaroxi
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ZaroxiTheme {
     /// Dark zaroxi_theme
     Dark,
     /// Light zaroxi_theme
     Light,
     /// Use system preference
+    #[default]
     System,
 }
 
@@ -23,12 +24,6 @@ impl std::fmt::Display for ZaroxiTheme {
             ZaroxiTheme::Light => write!(f, "Light"),
             ZaroxiTheme::System => write!(f, "System"),
         }
-    }
-}
-
-impl Default for ZaroxiTheme {
-    fn default() -> Self {
-        ZaroxiTheme::System
     }
 }
 

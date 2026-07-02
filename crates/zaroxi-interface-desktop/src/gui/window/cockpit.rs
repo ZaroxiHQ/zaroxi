@@ -511,16 +511,16 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
     // Account) — rendered in the editor content region so selecting a rail
     // destination visibly replaces the file editor. Skipped when Welcome
     // is active so the WelcomePanel widget has exclusive ownership.
-    if !inputs.welcome_panel {
-        if let Some((title, subtitle)) = &inputs.placeholder_panel {
-            tree.push(
-                Box::new(zaroxi_interface_widgets::DestinationPlaceholder {
-                    title: title.clone(),
-                    subtitle: subtitle.clone(),
-                }),
-                regions.editor,
-            );
-        }
+    if !inputs.welcome_panel
+        && let Some((title, subtitle)) = &inputs.placeholder_panel
+    {
+        tree.push(
+            Box::new(zaroxi_interface_widgets::DestinationPlaceholder {
+                title: title.clone(),
+                subtitle: subtitle.clone(),
+            }),
+            regions.editor,
+        );
     }
 
     // Unified workbench tab strip (file tabs + non-file workbench tabs).
@@ -565,43 +565,40 @@ pub fn paint_cockpit(inputs: &CockpitInputs, tokens: &SemanticColors) -> Scene {
     let mut scene = Scene::new();
     tree.paint(&mut scene, tokens);
 
-    if let Some((sections, selected_section)) = &inputs.settings_panel {
-        if let Some(settings) = &inputs.settings {
-            let editor_layout = taffy::Layout {
-                location: taffy::geometry::Point {
-                    x: inputs.editor_rect.0,
-                    y: inputs.editor_rect.1,
-                },
-                size: taffy::geometry::Size {
-                    width: inputs.editor_rect.2.max(0.0),
-                    height: inputs.editor_rect.3.max(0.0),
-                },
-                ..Default::default()
-            };
-            if let Some(sec) = sections.get(*selected_section) {
-                let mut dd_idx: usize = 0;
-                for row in &sec.items {
-                    if !matches!(
-                        &row.kind,
-                        zaroxi_interface_widgets::SettingsRowKind::Theme
-                            | zaroxi_interface_widgets::SettingsRowKind::Font
-                    ) {
-                        continue;
-                    }
-                    if inputs.settings_dropdown.open_row == Some(dd_idx) {
-                        if let Some(popup) = zaroxi_interface_widgets::settings_popup(
-                            dd_idx,
-                            &row.kind,
-                            &editor_layout,
-                            settings,
-                            &inputs.settings_dropdown,
-                        ) {
-                            popup.paint(&mut scene, tokens);
-                        }
-                        break;
-                    }
-                    dd_idx += 1;
+    if let Some((sections, selected_section)) = &inputs.settings_panel
+        && let Some(settings) = &inputs.settings
+    {
+        let editor_layout = taffy::Layout {
+            location: taffy::geometry::Point { x: inputs.editor_rect.0, y: inputs.editor_rect.1 },
+            size: taffy::geometry::Size {
+                width: inputs.editor_rect.2.max(0.0),
+                height: inputs.editor_rect.3.max(0.0),
+            },
+            ..Default::default()
+        };
+        if let Some(sec) = sections.get(*selected_section) {
+            let mut dd_idx: usize = 0;
+            for row in &sec.items {
+                if !matches!(
+                    &row.kind,
+                    zaroxi_interface_widgets::SettingsRowKind::Theme
+                        | zaroxi_interface_widgets::SettingsRowKind::Font
+                ) {
+                    continue;
                 }
+                if inputs.settings_dropdown.open_row == Some(dd_idx) {
+                    if let Some(popup) = zaroxi_interface_widgets::settings_popup(
+                        dd_idx,
+                        &row.kind,
+                        &editor_layout,
+                        settings,
+                        &inputs.settings_dropdown,
+                    ) {
+                        popup.paint(&mut scene, tokens);
+                    }
+                    break;
+                }
+                dd_idx += 1;
             }
         }
     }
@@ -636,60 +633,57 @@ pub fn build_cockpit_frame(
     let mut text: Vec<_> = tree.collect_text(tokens).into_iter().map(to_render_text).collect();
 
     // ── Popup menu (post-tree, stable geometry from cache) ─────────────────
-    if let Some((sections, selected_section)) = &inputs.settings_panel {
-        if let Some(settings) = &inputs.settings {
-            let editor_layout = taffy::Layout {
-                location: taffy::geometry::Point {
-                    x: inputs.editor_rect.0,
-                    y: inputs.editor_rect.1,
-                },
-                size: taffy::geometry::Size {
-                    width: inputs.editor_rect.2.max(0.0),
-                    height: inputs.editor_rect.3.max(0.0),
-                },
-                ..Default::default()
-            };
-            if let Some(sec) = sections.get(*selected_section) {
-                let mut dd_idx: usize = 0;
-                for row in &sec.items {
-                    if !matches!(
-                        &row.kind,
-                        zaroxi_interface_widgets::SettingsRowKind::Theme
-                            | zaroxi_interface_widgets::SettingsRowKind::Font
-                    ) {
-                        continue;
-                    }
-                    if inputs.settings_dropdown.open_row == Some(dd_idx) {
-                        let popup = if let Some(ref cached) = inputs.cached_popup {
-                            cached.clone()
-                        } else if let Some(fresh) = zaroxi_interface_widgets::settings_popup(
-                            dd_idx,
-                            &row.kind,
-                            &editor_layout,
-                            settings,
-                            &inputs.settings_dropdown,
-                        ) {
-                            inputs.cached_popup = Some(fresh.clone());
-                            fresh
-                        } else {
-                            break;
-                        };
-                        popup.paint(&mut scene, tokens);
-
-                        // Remove settings text items that fall behind the popup
-                        // background. Since text renders after the vello overlay
-                        // (popup bg), such text would bleed through if not removed.
-                        // Run BEFORE popup text push so option labels are kept.
-                        let (px, py, pw, ph) = popup.popup_rect;
-                        text.retain(|t| t.y < py || t.y > py + ph || t.x < px || t.x > px + pw);
-
-                        for wt in popup.text_items(tokens) {
-                            text.push(to_render_text(wt));
-                        }
-                        break;
-                    }
-                    dd_idx += 1;
+    if let Some((sections, selected_section)) = &inputs.settings_panel
+        && let Some(settings) = &inputs.settings
+    {
+        let editor_layout = taffy::Layout {
+            location: taffy::geometry::Point { x: inputs.editor_rect.0, y: inputs.editor_rect.1 },
+            size: taffy::geometry::Size {
+                width: inputs.editor_rect.2.max(0.0),
+                height: inputs.editor_rect.3.max(0.0),
+            },
+            ..Default::default()
+        };
+        if let Some(sec) = sections.get(*selected_section) {
+            let mut dd_idx: usize = 0;
+            for row in &sec.items {
+                if !matches!(
+                    &row.kind,
+                    zaroxi_interface_widgets::SettingsRowKind::Theme
+                        | zaroxi_interface_widgets::SettingsRowKind::Font
+                ) {
+                    continue;
                 }
+                if inputs.settings_dropdown.open_row == Some(dd_idx) {
+                    let popup = if let Some(ref cached) = inputs.cached_popup {
+                        cached.clone()
+                    } else if let Some(fresh) = zaroxi_interface_widgets::settings_popup(
+                        dd_idx,
+                        &row.kind,
+                        &editor_layout,
+                        settings,
+                        &inputs.settings_dropdown,
+                    ) {
+                        inputs.cached_popup = Some(fresh.clone());
+                        fresh
+                    } else {
+                        break;
+                    };
+                    popup.paint(&mut scene, tokens);
+
+                    // Remove settings text items that fall behind the popup
+                    // background. Since text renders after the vello overlay
+                    // (popup bg), such text would bleed through if not removed.
+                    // Run BEFORE popup text push so option labels are kept.
+                    let (px, py, pw, ph) = popup.popup_rect;
+                    text.retain(|t| t.y < py || t.y > py + ph || t.x < px || t.x > px + pw);
+
+                    for wt in popup.text_items(tokens) {
+                        text.push(to_render_text(wt));
+                    }
+                    break;
+                }
+                dd_idx += 1;
             }
         }
     }
@@ -885,8 +879,8 @@ mod tests {
         }];
 
         let settings = zaroxi_domain_settings::Settings::default();
-        let mut dropdown = SettingsDropdownState::default();
-        dropdown.open_row = Some(0); // Theme dropdown open
+        // Theme dropdown open
+        let dropdown = SettingsDropdownState { open_row: Some(0) };
 
         let mut inputs = sample();
         inputs.settings_panel = Some((sections.clone(), 0));

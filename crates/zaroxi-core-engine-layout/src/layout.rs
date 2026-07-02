@@ -179,30 +179,6 @@ impl ShellLayout {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ShellLayout;
-
-    #[test]
-    fn layout_large_window_has_expected_nonzero_content() {
-        let l = ShellLayout::from_window_size(1400, 900);
-        // Center region should be positive and fit within window bounds.
-        assert!(l.center_panel.width > 200.0, "center width too small: {}", l.center_panel.width);
-        assert!(
-            l.center_panel.height > 200.0,
-            "center height too small: {}",
-            l.center_panel.height
-        );
-        // Subregions sum to the center height (within floating point tolerance).
-        let total = l.content_tab_strip.height
-            + l.content_breadcrumb.height
-            + l.content_area.height
-            + l.bottom_panel.height;
-        let diff = (total - l.center_panel.height).abs();
-        assert!(diff < 0.001, "center subregion heights must sum to center height; diff={}", diff);
-    }
-}
-
 /// Build a simple, deterministic app layout from window dimensions.
 ///
 /// Computes a `ShellLayout` and converts each major region into a colored
@@ -216,16 +192,14 @@ pub fn build_shell_ui(
     use zaroxi_core_engine_scene::RectPrimitive;
     let layout = super::ShellLayout::from_window_size(window_w, window_h);
 
-    let mut rects: Vec<RectPrimitive> = Vec::new();
-
     // App background
-    rects.push(RectPrimitive::new(
+    let mut rects: Vec<RectPrimitive> = vec![RectPrimitive::new(
         0.0,
         0.0,
         layout.window_size.width,
         layout.window_size.height,
         tokens.app_background.to_array(),
-    ));
+    )];
 
     // Top bar
     rects.push(RectPrimitive::new(
@@ -264,4 +238,28 @@ pub fn build_shell_ui(
     ));
 
     rects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ShellLayout;
+
+    #[test]
+    fn layout_large_window_has_expected_nonzero_content() {
+        let l = ShellLayout::from_window_size(1400, 900);
+        // Center region should be positive and fit within window bounds.
+        assert!(l.center_panel.width > 200.0, "center width too small: {}", l.center_panel.width);
+        assert!(
+            l.center_panel.height > 200.0,
+            "center height too small: {}",
+            l.center_panel.height
+        );
+        // Subregions sum to the center height (within floating point tolerance).
+        let total = l.content_tab_strip.height
+            + l.content_breadcrumb.height
+            + l.content_area.height
+            + l.bottom_panel.height;
+        let diff = (total - l.center_panel.height).abs();
+        assert!(diff < 0.001, "center subregion heights must sum to center height; diff={}", diff);
+    }
 }

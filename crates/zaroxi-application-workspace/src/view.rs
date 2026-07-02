@@ -59,6 +59,7 @@ use crate::ports::EditorDocument;
 ///
 /// - `content`: optional full buffer text as returned by a `WorkspaceView` read API.
 /// - `max_chars`: maximum number of Unicode scalar values to include in the snippet.
+///
 /// Returns `None` when `content` is `None`, otherwise returns the possibly-truncated
 /// string. Truncation is Unicode-safe and appends "..." when the content is longer
 /// than `max_chars`.
@@ -209,16 +210,16 @@ pub fn project_renderable_lines(window: &VisibleLinesWindow) -> Vec<RenderableLi
             }
 
             // handle zero-width cursor at end of line (cursor at column == n)
-            if let Some(c) = cursor {
-                if c == n {
-                    // append zero-width cursor span to represent caret at line end
-                    spans.push(RenderSpan {
-                        kind: SpanKind::Cursor,
-                        text: String::new(),
-                        start_col: n,
-                        end_col: n,
-                    });
-                }
+            if let Some(c) = cursor
+                && c == n
+            {
+                // append zero-width cursor span to represent caret at line end
+                spans.push(RenderSpan {
+                    kind: SpanKind::Cursor,
+                    text: String::new(),
+                    start_col: n,
+                    end_col: n,
+                });
             }
 
             RenderableLine { line_number: vl.line_number, spans, total_columns: chars.len() }
@@ -231,7 +232,7 @@ pub fn project_renderable_lines(window: &VisibleLinesWindow) -> Vec<RenderableLi
 /// - `doc`: reference to an EditorDocument read-model (pure input).
 /// - `window_size`: number of lines to include in the window (preferred).
 /// - `center_on_cursor`: when true attempt to center the window on the cursor line;
-///    otherwise return the top-of-document window (starting at line 1).
+///   otherwise return the top-of-document window (starting at line 1).
 ///
 /// Semantics (simple, deterministic):
 /// - If no content is present `total_lines == 0` and `lines` is empty.
@@ -306,18 +307,19 @@ pub fn project_visible_lines(
         let mut sel_start_col: Option<usize> = None;
         let mut sel_end_col: Option<usize> = None;
 
-        if let Some((start_line, start_col, end_line, end_col)) = sel_opt {
-            if idx >= start_line && idx <= end_line {
-                selection_intersects = true;
-                let line_char_count = line.chars().count();
-                let s = if idx == start_line { start_col } else { 0 };
-                let e = if idx == end_line { end_col } else { line_char_count };
-                // clamp to line bounds
-                let s = std::cmp::min(s, line_char_count);
-                let e = std::cmp::min(e, line_char_count);
-                sel_start_col = Some(s);
-                sel_end_col = Some(e);
-            }
+        if let Some((start_line, start_col, end_line, end_col)) = sel_opt
+            && idx >= start_line
+            && idx <= end_line
+        {
+            selection_intersects = true;
+            let line_char_count = line.chars().count();
+            let s = if idx == start_line { start_col } else { 0 };
+            let e = if idx == end_line { end_col } else { line_char_count };
+            // clamp to line bounds
+            let s = std::cmp::min(s, line_char_count);
+            let e = std::cmp::min(e, line_char_count);
+            sel_start_col = Some(s);
+            sel_end_col = Some(e);
         }
 
         let cursor_on_line = idx == cursor_line;
@@ -407,18 +409,19 @@ pub fn project_visible_lines_for_viewport(
         let mut sel_start_col: Option<usize> = None;
         let mut sel_end_col: Option<usize> = None;
 
-        if let Some((start_line, start_col, end_line, end_col)) = sel_opt {
-            if idx >= start_line && idx <= end_line {
-                selection_intersects = true;
-                let line_char_count = line.chars().count();
-                let s = if idx == start_line { start_col } else { 0 };
-                let e = if idx == end_line { end_col } else { line_char_count };
-                // clamp to line bounds
-                let s = std::cmp::min(s, line_char_count);
-                let e = std::cmp::min(e, line_char_count);
-                sel_start_col = Some(s);
-                sel_end_col = Some(e);
-            }
+        if let Some((start_line, start_col, end_line, end_col)) = sel_opt
+            && idx >= start_line
+            && idx <= end_line
+        {
+            selection_intersects = true;
+            let line_char_count = line.chars().count();
+            let s = if idx == start_line { start_col } else { 0 };
+            let e = if idx == end_line { end_col } else { line_char_count };
+            // clamp to line bounds
+            let s = std::cmp::min(s, line_char_count);
+            let e = std::cmp::min(e, line_char_count);
+            sel_start_col = Some(s);
+            sel_end_col = Some(e);
         }
 
         let cursor_on_line = idx == cursor_line;

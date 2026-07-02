@@ -135,7 +135,7 @@ fn tokenize_line(line: &str) -> Vec<LineHighlight> {
                     end_col: i,
                     kind: HighlightKind::Keyword,
                 });
-            } else if word.chars().next().map_or(false, |c| c.is_uppercase()) {
+            } else if word.chars().next().is_some_and(|c| c.is_uppercase()) {
                 // Type-like: starts with uppercase
                 spans.push(LineHighlight {
                     start_col: start,
@@ -149,62 +149,14 @@ fn tokenize_line(line: &str) -> Vec<LineHighlight> {
 
         // Operators: single and multi-char
         let op_len = match c {
-            ':' => {
-                if i + 1 < len && chars[i + 1] == ':' {
-                    2
-                } else {
-                    1
-                }
-            }
-            '-' => {
-                if i + 1 < len && chars[i + 1] == '>' {
-                    2
-                } else {
-                    1
-                }
-            }
-            '=' => {
-                if i + 1 < len && (chars[i + 1] == '=' || chars[i + 1] == '>') {
-                    2
-                } else {
-                    1
-                }
-            }
-            '!' => {
-                if i + 1 < len && chars[i + 1] == '=' {
-                    2
-                } else {
-                    1
-                }
-            }
-            '<' | '>' => {
-                if i + 1 < len && chars[i + 1] == '=' {
-                    2
-                } else {
-                    1
-                }
-            }
-            '&' | '|' => {
-                if i + 1 < len && chars[i + 1] == c {
-                    2
-                } else {
-                    1
-                }
-            }
-            '+' | '*' | '/' | '%' | '^' => {
-                if i + 1 < len && chars[i + 1] == '=' {
-                    2
-                } else {
-                    1
-                }
-            }
-            '.' => {
-                if i + 1 < len && chars[i + 1] == '.' {
-                    2
-                } else {
-                    1
-                }
-            }
+            ':' if i + 1 < len && chars[i + 1] == ':' => 2,
+            '-' if i + 1 < len && chars[i + 1] == '>' => 2,
+            '=' if i + 1 < len && (chars[i + 1] == '=' || chars[i + 1] == '>') => 2,
+            '!' if i + 1 < len && chars[i + 1] == '=' => 2,
+            '<' | '>' if i + 1 < len && chars[i + 1] == '=' => 2,
+            '&' | '|' if i + 1 < len && chars[i + 1] == c => 2,
+            '+' | '*' | '/' | '%' | '^' if i + 1 < len && chars[i + 1] == '=' => 2,
+            '.' if i + 1 < len && chars[i + 1] == '.' => 2,
             _ => 1,
         };
 

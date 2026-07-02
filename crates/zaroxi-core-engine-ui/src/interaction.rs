@@ -112,15 +112,15 @@ impl WidgetInteractionModel {
                 );
             }
 
-            if let Some(w) = tree.widgets.get(drag.widget_idx) {
-                if let Some(id) = w.widget_id() {
-                    let old_offset = self.scroll_offsets.get(&id).copied().unwrap_or(0.0);
-                    if (clamped - old_offset).abs() > 0.001 {
-                        self.scroll_offsets.insert(id.clone(), clamped);
-                        actions.push(WidgetAction::ScrollOffsetChanged(id, clamped));
-                        self.apply_scroll_offsets(tree);
-                        actions.push(WidgetAction::StateNeedsRedraw);
-                    }
+            if let Some(w) = tree.widgets.get(drag.widget_idx)
+                && let Some(id) = w.widget_id()
+            {
+                let old_offset = self.scroll_offsets.get(&id).copied().unwrap_or(0.0);
+                if (clamped - old_offset).abs() > 0.001 {
+                    self.scroll_offsets.insert(id.clone(), clamped);
+                    actions.push(WidgetAction::ScrollOffsetChanged(id, clamped));
+                    self.apply_scroll_offsets(tree);
+                    actions.push(WidgetAction::StateNeedsRedraw);
                 }
             }
             return actions;
@@ -184,14 +184,14 @@ impl WidgetInteractionModel {
         if std::env::var("ZAROXI_SCROLL_TRACE").as_deref() == Ok("1") {
             let hit_widget = hit.and_then(|idx| tree.widgets.get(idx));
             let is_scrollbar =
-                hit_widget.map_or(false, |w| matches!(w, ShellWidget::ScrollBar { .. }));
+                hit_widget.is_some_and(|w| matches!(w, ShellWidget::ScrollBar { .. }));
             let hit_type = hit_widget.map(|w| format!("{:?}", std::mem::discriminant(w)));
             // Also find the editor scrollbar widget regardless of hit to show its rect
             let editor_sb = tree.widgets.iter().find_map(|w| {
-                if let ShellWidget::ScrollBar { id, track_rect, .. } = w {
-                    if *id == WidgetId::scrollbar(crate::layout_constants::SCROLLBAR_ID_EDITOR) {
-                        return Some(*track_rect);
-                    }
+                if let ShellWidget::ScrollBar { id, track_rect, .. } = w
+                    && *id == WidgetId::scrollbar(crate::layout_constants::SCROLLBAR_ID_EDITOR)
+                {
+                    return Some(*track_rect);
                 }
                 None
             });
@@ -211,34 +211,34 @@ impl WidgetInteractionModel {
 
         if let Some(idx) = hit {
             let is_scrollbar =
-                tree.widgets.get(idx).map_or(false, |w| matches!(w, ShellWidget::ScrollBar { .. }));
+                tree.widgets.get(idx).is_some_and(|w| matches!(w, ShellWidget::ScrollBar { .. }));
 
             if is_scrollbar {
                 tree.set_state_at(idx, InteractionState::Active);
-                if let Some(w) = tree.widgets.get(idx) {
-                    if let ShellWidget::ScrollBar { track_rect, thumb_rect, id, .. } = w {
-                        let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
-                        let thumb_h = thumb_rect.height;
-                        let track_h = track_rect.height;
-                        let thumb_y = track_rect.y + offset * (track_h - thumb_h).max(1.0);
+                if let Some(w) = tree.widgets.get(idx)
+                    && let ShellWidget::ScrollBar { track_rect, thumb_rect, id, .. } = w
+                {
+                    let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+                    let thumb_h = thumb_rect.height;
+                    let track_h = track_rect.height;
+                    let thumb_y = track_rect.y + offset * (track_h - thumb_h).max(1.0);
 
-                        if y < thumb_y || y > thumb_y + thumb_h {
-                            let travel = (track_h - thumb_h).max(1.0);
-                            let target_center_y = y - thumb_h * 0.5;
-                            let new_offset =
-                                ((target_center_y - track_rect.y) / travel).clamp(0.0, 1.0);
-                            self.scroll_offsets.insert(id.clone(), new_offset);
-                            actions.push(WidgetAction::ScrollOffsetChanged(id.clone(), new_offset));
-                        }
-
-                        self.scrollbar_drag_state = Some(ScrollDragState {
-                            widget_idx: idx,
-                            start_cursor_y: y,
-                            start_offset: self.scroll_offsets.get(id).copied().unwrap_or(0.0),
-                            track_height: track_h,
-                            thumb_height: thumb_h,
-                        });
+                    if y < thumb_y || y > thumb_y + thumb_h {
+                        let travel = (track_h - thumb_h).max(1.0);
+                        let target_center_y = y - thumb_h * 0.5;
+                        let new_offset =
+                            ((target_center_y - track_rect.y) / travel).clamp(0.0, 1.0);
+                        self.scroll_offsets.insert(id.clone(), new_offset);
+                        actions.push(WidgetAction::ScrollOffsetChanged(id.clone(), new_offset));
                     }
+
+                    self.scrollbar_drag_state = Some(ScrollDragState {
+                        widget_idx: idx,
+                        start_cursor_y: y,
+                        start_offset: self.scroll_offsets.get(id).copied().unwrap_or(0.0),
+                        track_height: track_h,
+                        thumb_height: thumb_h,
+                    });
                 }
             } else {
                 tree.set_state_at(idx, InteractionState::Active);
@@ -288,10 +288,10 @@ impl WidgetInteractionModel {
 
         // Activate if the same logical widget was pressed and released
         // (matched by stable WidgetId, not tree index which can shift across redraws).
-        if let (Some(pid), Some(hid)) = (pressed_id.as_ref(), hit_id.as_ref()) {
-            if pid == hid {
-                actions.push(WidgetAction::Activated(hid.clone()));
-            }
+        if let (Some(pid), Some(hid)) = (pressed_id.as_ref(), hit_id.as_ref())
+            && pid == hid
+        {
+            actions.push(WidgetAction::Activated(hid.clone()));
         }
 
         self.clear_all_hover(tree);
@@ -354,7 +354,7 @@ impl WidgetInteractionModel {
     /// Move focus to the next focusable ListItem (Explorer rows: index >= 10).
     pub fn focus_next_explorer_item(&mut self, tree: &mut ShellWidgetTree) -> Vec<WidgetAction> {
         let items: Vec<usize> = self.focusable_indices(tree).into_iter().filter(|&i| {
-            tree.widgets.get(i).map_or(false, |w| {
+            tree.widgets.get(i).is_some_and(|w| {
                 matches!(w, ShellWidget::ListItem { id: WidgetId::ListItem { index }, .. } if *index >= 10)
             })
         }).collect();
@@ -383,7 +383,7 @@ impl WidgetInteractionModel {
     /// Move focus to the previous focusable ListItem (Explorer rows: index >= 10).
     pub fn focus_prev_explorer_item(&mut self, tree: &mut ShellWidgetTree) -> Vec<WidgetAction> {
         let items: Vec<usize> = self.focusable_indices(tree).into_iter().filter(|&i| {
-            tree.widgets.get(i).map_or(false, |w| {
+            tree.widgets.get(i).is_some_and(|w| {
                 matches!(w, ShellWidget::ListItem { id: WidgetId::ListItem { index }, .. } if *index >= 10)
             })
         }).collect();
@@ -416,11 +416,11 @@ impl WidgetInteractionModel {
             None => return Vec::new(),
         };
 
-        if let Some(w) = tree.widgets.get(idx) {
-            if let Some(id) = w.widget_id() {
-                tree.set_state_at(idx, InteractionState::Active);
-                return vec![WidgetAction::Activated(id), WidgetAction::StateNeedsRedraw];
-            }
+        if let Some(w) = tree.widgets.get(idx)
+            && let Some(id) = w.widget_id()
+        {
+            tree.set_state_at(idx, InteractionState::Active);
+            return vec![WidgetAction::Activated(id), WidgetAction::StateNeedsRedraw];
         }
 
         Vec::new()
@@ -538,6 +538,34 @@ impl Default for WidgetInteractionModel {
     }
 }
 
+impl ShellWidget {
+    /// Whether this widget can receive keyboard focus.
+    pub fn is_focusable(&self) -> bool {
+        matches!(
+            self,
+            Self::TabItem { .. }
+                | Self::ListItem { .. }
+                | Self::Button { .. }
+                | Self::ScrollBar { .. }
+                | Self::TextInput { .. }
+        )
+    }
+
+    /// Return the `WidgetId` if this widget carries one.
+    pub fn widget_id(&self) -> Option<WidgetId> {
+        match self {
+            Self::ListItem { id, .. } => Some(id.clone()),
+            Self::TabItem { id, .. } => Some(id.clone()),
+            Self::PanelHeader { id, .. } => Some(id.clone()),
+            Self::StatusSegment { id, .. } => Some(id.clone()),
+            Self::ScrollBar { id, .. } => Some(id.clone()),
+            Self::Button { id, .. } => Some(id.clone()),
+            Self::TextInput { id, .. } => Some(id.clone()),
+            _ => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ShellWidget helpers added for the interaction model
 // ---------------------------------------------------------------------------
@@ -623,34 +651,6 @@ mod tests {
             );
         } else {
             panic!("expected ScrollBar widget");
-        }
-    }
-}
-
-impl ShellWidget {
-    /// Whether this widget can receive keyboard focus.
-    pub fn is_focusable(&self) -> bool {
-        matches!(
-            self,
-            Self::TabItem { .. }
-                | Self::ListItem { .. }
-                | Self::Button { .. }
-                | Self::ScrollBar { .. }
-                | Self::TextInput { .. }
-        )
-    }
-
-    /// Return the `WidgetId` if this widget carries one.
-    pub fn widget_id(&self) -> Option<WidgetId> {
-        match self {
-            Self::ListItem { id, .. } => Some(id.clone()),
-            Self::TabItem { id, .. } => Some(id.clone()),
-            Self::PanelHeader { id, .. } => Some(id.clone()),
-            Self::StatusSegment { id, .. } => Some(id.clone()),
-            Self::ScrollBar { id, .. } => Some(id.clone()),
-            Self::Button { id, .. } => Some(id.clone()),
-            Self::TextInput { id, .. } => Some(id.clone()),
-            _ => None,
         }
     }
 }

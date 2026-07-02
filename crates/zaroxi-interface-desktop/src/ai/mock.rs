@@ -10,6 +10,12 @@ use crate::ports::BufferId;
 /// keeps previous presentation-only semantics for tests/harnesses that call it.
 pub struct MockAiProvider;
 
+impl Default for MockAiProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockAiProvider {
     pub fn new() -> Self {
         MockAiProvider

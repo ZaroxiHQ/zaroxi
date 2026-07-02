@@ -46,17 +46,12 @@ pub enum UiEvent {
 
 /// Logical layout regions produced by the layout layer. The router will route
 /// events to the "active" region.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Region {
     Chrome,
+    #[default]
     Content,
     Status,
-}
-
-impl Default for Region {
-    fn default() -> Self {
-        Region::Content
-    }
 }
 
 /// Thin UI-facing trait representing the frame-level UI model.

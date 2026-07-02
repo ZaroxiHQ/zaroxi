@@ -8,10 +8,10 @@ use log::{debug, info};
 use std::sync::atomic::Ordering;
 use wgpu;
 
-/// Shape helpers: build panel/background quads and submit the shape pass.
-///
-/// These functions were extracted from core.rs as a move-only refactor. They
-/// preserve behavior and logging exactly as before.
+// Shape helpers: build panel/background quads and submit the shape pass.
+//
+// These functions were extracted from core.rs as a move-only refactor. They
+// preserve behavior and logging exactly as before.
 
 /// Queue header + content quads for a single panel into the provided vertex/index vectors.
 ///
@@ -96,57 +96,59 @@ pub(crate) fn queue_panel_quads(
     }
 
     // ── Border rendering (drawn last so borders sit on top of fills) ──
-    if let (Some(border_color), w) = (block.border_color, block.border_width) {
-        if w > 0.0 && target.w > 0.0 && target.h > 0.0 {
-            push_colored_quad(
-                verts,
-                indices,
-                target.x,
-                target.y,
-                target.w,
-                w,
-                border_color,
-                screen_w,
-                screen_h,
-                0.0,
-            );
-            push_colored_quad(
-                verts,
-                indices,
-                target.x,
-                target.y + target.h - w,
-                target.w,
-                w,
-                border_color,
-                screen_w,
-                screen_h,
-                0.0,
-            );
-            push_colored_quad(
-                verts,
-                indices,
-                target.x,
-                target.y,
-                w,
-                target.h,
-                border_color,
-                screen_w,
-                screen_h,
-                0.0,
-            );
-            push_colored_quad(
-                verts,
-                indices,
-                target.x + target.w - w,
-                target.y,
-                w,
-                target.h,
-                border_color,
-                screen_w,
-                screen_h,
-                0.0,
-            );
-        }
+    if let (Some(border_color), w) = (block.border_color, block.border_width)
+        && w > 0.0
+        && target.w > 0.0
+        && target.h > 0.0
+    {
+        push_colored_quad(
+            verts,
+            indices,
+            target.x,
+            target.y,
+            target.w,
+            w,
+            border_color,
+            screen_w,
+            screen_h,
+            0.0,
+        );
+        push_colored_quad(
+            verts,
+            indices,
+            target.x,
+            target.y + target.h - w,
+            target.w,
+            w,
+            border_color,
+            screen_w,
+            screen_h,
+            0.0,
+        );
+        push_colored_quad(
+            verts,
+            indices,
+            target.x,
+            target.y,
+            w,
+            target.h,
+            border_color,
+            screen_w,
+            screen_h,
+            0.0,
+        );
+        push_colored_quad(
+            verts,
+            indices,
+            target.x + target.w - w,
+            target.y,
+            w,
+            target.h,
+            border_color,
+            screen_w,
+            screen_h,
+            0.0,
+        );
     }
 
     content_base_idx

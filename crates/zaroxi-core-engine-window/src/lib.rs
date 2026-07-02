@@ -69,13 +69,13 @@ impl ZaroxiWindow {
     /// and schedule an initial frame. These are best-effort and safe public calls.
     pub fn show_and_warmup(&self) {
         // Try to make the window visible and request a frame.
-        let _ = self.window.set_visible(true);
-        let _ = self.window.pre_present_notify();
-        let _ = self.window.request_redraw();
+        self.window.set_visible(true);
+        self.window.pre_present_notify();
+        self.window.request_redraw();
 
         // Small sleep + second request helps some compositors surface the window.
         std::thread::sleep(std::time::Duration::from_millis(40));
-        let _ = self.window.request_redraw();
+        self.window.request_redraw();
     }
 
     /// Return the cached size (width, height) in physical pixels.

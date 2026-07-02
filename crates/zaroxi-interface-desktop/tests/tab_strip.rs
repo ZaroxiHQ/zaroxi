@@ -315,7 +315,7 @@ fn action_path_fallback_when_active_missing_selects_deterministically() {
 
 // ----------------- New renderer-visible tab strip tests -----------------
 
-fn sample_pixel(buf: &Vec<u8>, width: u32, x: u32, y: u32) -> [u8; 4] {
+fn sample_pixel(buf: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     let idx = ((y * width + x) * 4) as usize;
     [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
 }
@@ -360,7 +360,7 @@ fn render_tab_strip_one_buffer_shows_active_tab() {
     let num = ts.tabs.len() as u32;
     let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
     let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
-    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+    let base_w = regions.chrome.width.checked_div(num).unwrap_or(0);
     let mut x0 = regions.chrome.x;
 
     // Active tab color per presenter: [255,200,0,255]
@@ -432,7 +432,7 @@ fn render_tab_strip_multiple_buffers_order_and_active_marker() {
     let num = ts.tabs.len() as u32;
     let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
     let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
-    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+    let base_w = regions.chrome.width.checked_div(num).unwrap_or(0);
     let mut x0 = regions.chrome.x;
 
     let active_color = [255u8, 200u8, 0u8, 255u8];
@@ -507,7 +507,7 @@ fn render_tab_strip_reflects_keyboard_navigation() {
     let num = ts.tabs.len() as u32;
     let tab_bar_h = std::cmp::min(14u32, regions.chrome.height.saturating_sub(4));
     let tab_bar_y = regions.chrome.y + (regions.chrome.height.saturating_sub(tab_bar_h) / 2);
-    let base_w = if num > 0 { regions.chrome.width / num } else { 0 };
+    let base_w = regions.chrome.width.checked_div(num).unwrap_or(0);
 
     // Render initial state (active = a)
     let mut buf1 = vec![0u8; (width as usize) * (height as usize) * 4];

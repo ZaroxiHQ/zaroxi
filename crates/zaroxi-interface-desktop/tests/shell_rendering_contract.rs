@@ -51,7 +51,7 @@ fn content_block_id_predicate_matches_live_block_ids() {
 /// calculation: region_h - CONTENT_HEADER_H - 2*CONTENT_PAD_X.
 #[test]
 fn visible_lines_matches_renderer_content_math() {
-    assert_eq!(lc::visible_lines_from_region(44.0), 0.max(1) as usize); // (44-28-16)/16 = 0, max 1
+    assert_eq!(lc::visible_lines_from_region(44.0), 1usize); // (44-28-16)/16 = 0, max 1
     assert_eq!(lc::visible_lines_from_region(60.0), 1); // (60-44)/16 = 1
     assert_eq!(lc::visible_lines_from_region(108.0), 4); // (108-44)/16 = 4
     assert_eq!(lc::visible_lines_from_region(4.0), 1); // (4-44)/16 negative, max 1

@@ -12,10 +12,10 @@ pub struct ShellRenderTranscript {
     pub lines: Vec<String>,
 }
 
-impl ShellRenderTranscript {
+impl std::fmt::Display for ShellRenderTranscript {
     /// Join lines into a single string transcript.
-    pub fn to_string(&self) -> String {
-        self.lines.join("\n")
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.lines.join("\n"))
     }
 }
 

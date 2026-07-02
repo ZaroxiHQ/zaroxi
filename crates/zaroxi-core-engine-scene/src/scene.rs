@@ -5,6 +5,7 @@
 /// - preserves cursor/selection presence as a semantic signal,
 /// - carries small semantic text blocks (status, chrome, last command),
 /// - carries boolean flags for presence of AI indicators.
+///
 /// It does NOT contain any layout, pixel coordinates, colors, fonts, or GPU
 /// resources. It is explicitly convertible from
 /// `zaroxi_core_engine_view::EngineShellViewInput`.
@@ -197,7 +198,7 @@ pub fn insert_char(ch: char) {
     let col = s.cursor_column.unwrap_or(0) as usize;
     let line = &mut s.text_lines[line_idx];
     let byte_idx = char_to_byte_index(line, col);
-    line.insert_str(byte_idx, &ch.to_string());
+    line.insert(byte_idx, ch);
     s.cursor_column = Some((col + 1) as u32);
     s.viewport_total_lines = s.text_lines.len() as u32;
 }
@@ -311,10 +312,8 @@ pub fn map_click_to_cursor(
     // row offset within the visible slice (0-based)
     let row_offset = if click_y < base_y {
         0u32
-    } else if line_h == 0 {
-        0u32
     } else {
-        (click_y.saturating_sub(base_y)) / line_h
+        click_y.saturating_sub(base_y).checked_div(line_h).unwrap_or(0)
     };
 
     let line = top_line.saturating_add(row_offset).max(1);

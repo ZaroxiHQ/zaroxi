@@ -63,13 +63,7 @@ pub enum FileLoadStrategy {
 impl FileLoadStrategy {
     /// Determine the appropriate strategy based on file size.
     pub fn for_size(size: u64) -> Self {
-        if size <= 10 * 1024 * 1024 {
-            FileLoadStrategy::Memory
-        } else if size <= 100 * 1024 * 1024 {
-            FileLoadStrategy::Mmap
-        } else {
-            FileLoadStrategy::Mmap
-        }
+        if size <= 10 * 1024 * 1024 { FileLoadStrategy::Memory } else { FileLoadStrategy::Mmap }
     }
 }
 

@@ -104,17 +104,11 @@ pub struct VisibleTab {
 /// - Exactly zero or one preview editor.
 /// - `active` is `Some(id)` where `id` exists in `pinned` or `preview`,
 ///   or `None` when no file editor is open.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EditorGroup {
     pinned: Vec<EditorEntry>,
     preview: Option<EditorEntry>,
     active: Option<EditorId>,
-}
-
-impl Default for EditorGroup {
-    fn default() -> Self {
-        Self { pinned: Vec::new(), preview: None, active: None }
-    }
 }
 
 // ── Queries ─────────────────────────────────────────────────────────
@@ -136,7 +130,7 @@ impl EditorGroup {
 
     /// Whether a canonical path is currently the preview editor.
     pub fn is_preview(&self, path: &str) -> bool {
-        self.preview.as_ref().map_or(false, |pv| pv.path == path)
+        self.preview.as_ref().is_some_and(|pv| pv.path == path)
     }
 
     /// Look up an editor entry by id.
@@ -208,13 +202,10 @@ impl EditorGroup {
     /// Debug: assert invariants and log any violation.
     pub fn check_invariants(&self) {
         for e in &self.pinned {
-            if let Some(ref pv) = self.preview {
-                if e.path == pv.path {
-                    log::error!(
-                        "EDITOR_GROUP_INVARIANT: path={} is both pinned and preview",
-                        e.path,
-                    );
-                }
+            if let Some(ref pv) = self.preview
+                && e.path == pv.path
+            {
+                log::error!("EDITOR_GROUP_INVARIANT: path={} is both pinned and preview", e.path,);
             }
         }
     }
@@ -325,18 +316,17 @@ impl EditorGroup {
     /// Activate an existing editor by path (no `buf:` prefix).
     /// Returns `true` if the active editor changed.
     pub fn activate_by_path(&mut self, path: &str) -> bool {
-        let target = if self.is_pinned(path) {
-            Some(path.to_string())
-        } else if self.preview.as_ref().map_or(false, |pv| pv.path == path) {
-            Some(path.to_string())
-        } else {
-            None
-        };
-        if let Some(id) = target {
-            if self.active.as_deref() != Some(&id) {
-                self.active = Some(id);
-                return true;
-            }
+        let target =
+            if self.is_pinned(path) || self.preview.as_ref().is_some_and(|pv| pv.path == path) {
+                Some(path.to_string())
+            } else {
+                None
+            };
+        if let Some(id) = target
+            && self.active.as_deref() != Some(&id)
+        {
+            self.active = Some(id);
+            return true;
         }
         false
     }
@@ -394,7 +384,7 @@ impl EditorGroup {
         // Normalize to canonical identity so callers may pass either the
         // canonical path OR the `buf:<path>` transport/tab id form.
         let canon = canonical_path_from_editor_id(id);
-        let was_preview = self.preview.as_ref().map_or(false, |pv| same_document(&pv.id, canon));
+        let was_preview = self.preview.as_ref().is_some_and(|pv| same_document(&pv.id, canon));
         let was_pinned_pos = self.pinned.iter().position(|e| same_document(&e.id, canon));
 
         if was_preview {

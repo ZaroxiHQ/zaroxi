@@ -651,10 +651,10 @@ impl CosmicTextRenderer {
 
         // Compute sample bounding box if any. Use it to derive scissor rect.
         let sample_bbox_opt = if !samples.is_empty() {
-            let mut minx = std::f32::INFINITY;
-            let mut miny = std::f32::INFINITY;
-            let mut maxx = std::f32::NEG_INFINITY;
-            let mut maxy = std::f32::NEG_INFINITY;
+            let mut minx = f32::INFINITY;
+            let mut miny = f32::INFINITY;
+            let mut maxx = f32::NEG_INFINITY;
+            let mut maxy = f32::NEG_INFINITY;
             for s in &samples {
                 minx = minx.min(s.x);
                 miny = miny.min(s.y);
@@ -805,7 +805,7 @@ impl CosmicTextRenderer {
     /// Run an honest text pipeline simulation that does NOT synthesize glyph bitmaps.
     /// It computes shaping estimates and returns per-frame counters. If real raster
     /// & atlas insertion is unavailable the counters reflect that honestly.
-    fn run_text_pipeline_simulation(&self, q: &Vec<TextCommand>) -> FrameSummary {
+    fn run_text_pipeline_simulation(&self, q: &[TextCommand]) -> FrameSummary {
         // Conservative shaping estimate: count chars in queued commands.
         let mut shaped_total: usize = 0;
         for cmd in q.iter() {
@@ -859,20 +859,20 @@ impl TextRenderer for CosmicTextRenderer {
             .iter()
             .find(|c| c.is_title || c.text.contains("Zaroxi") || !c.text.trim().is_empty())
             .cloned();
-        if let Some(rep) = representative {
-            if text_debug_enabled() {
-                eprintln!(
-                    "GUI_SHELL_TRACE: cosmic_input representative='{}' len={} pos=({}, {}) clip={}x{} font_size={} color={:?}",
-                    rep.text,
-                    rep.text.chars().count(),
-                    rep.x,
-                    rep.y,
-                    rep.clip_w,
-                    rep.clip_h,
-                    rep.size,
-                    rep.color
-                );
-            }
+        if let Some(rep) = representative
+            && text_debug_enabled()
+        {
+            eprintln!(
+                "GUI_SHELL_TRACE: cosmic_input representative='{}' len={} pos=({}, {}) clip={}x{} font_size={} color={:?}",
+                rep.text,
+                rep.text.chars().count(),
+                rep.x,
+                rep.y,
+                rep.clip_w,
+                rep.clip_h,
+                rep.size,
+                rep.color
+            );
         }
 
         // Real pipeline: shape, rasterize via swash cache, insert into shared atlas, upload.
@@ -969,6 +969,8 @@ impl TextRenderer for CosmicTextRenderer {
         // This allows us to avoid re-rasterizing while still emitting instances for
         // repeated glyphs (e.g., repeated spaces or common glyphs). None -> non-drawable.
         use std::collections::HashMap as StdHashMap;
+        // One-off per-frame local: key -> optional (atlas entry + placement metrics).
+        #[allow(clippy::type_complexity)]
         let mut local_cache: StdHashMap<
             cosmic_text::CacheKey,
             Option<(crate::renderer::text_atlas::AtlasEntry, i32, i32, u32, u32, f32, f32)>,
@@ -1140,7 +1142,7 @@ impl TextRenderer for CosmicTextRenderer {
 
             // ── Shape path (cache miss): build the cosmic buffer and lay it out ──
             let metrics = Metrics::new(font_size_physical, font_size_physical * 1.2);
-            let mut buf = CosmicBuffer::new(&mut *fs, metrics);
+            let mut buf = CosmicBuffer::new(&mut fs, metrics);
             // Pin the bundled editor font on every run so the whole line shapes
             // with one monospace font (no default/per-run font matching).
             let family = Family::Name(&self.font_family);
@@ -1188,7 +1190,7 @@ impl TextRenderer for CosmicTextRenderer {
             // Borrow buffer for layout runs. Extract owned `LayoutGlyph` records while the
             // borrow is active, compute precise float layout positions (avoid integer truncation),
             // and record CacheKey for rasterization. Drop the borrow before calling into `swash`.
-            let mut borrowed = buf.borrow_with(&mut *fs);
+            let mut borrowed = buf.borrow_with(&mut fs);
             // We'll collect tuples of (layout_glyph, layout_x_f32, layout_y_f32, cache_key)
             let mut physicals: Vec<(cosmic_text::LayoutGlyph, f32, f32, cosmic_text::CacheKey)> =
                 Vec::new();
@@ -1238,7 +1240,9 @@ impl TextRenderer for CosmicTextRenderer {
                     physicals.push((g.clone(), layout_x, layout_y, cache_key));
                 }
             }
-            drop(borrowed);
+            // Release the borrowed `&mut FontSystem` view before reusing it below.
+            // (`borrowed` is not `Drop`; the move is what ends the borrow.)
+            let _ = borrowed;
 
             // Record this line's shaped glyphs (positions relative to the command
             // origin) into the per-line cache so later frames can re-emit it at a
@@ -1438,7 +1442,7 @@ impl TextRenderer for CosmicTextRenderer {
                 }
 
                 // Request raster image from swash cache
-                match swash.get_image(&mut *fs, cache_key) {
+                match swash.get_image(&mut fs, cache_key) {
                     Some(img) => {
                         rasterized_total += 1;
                         // Build RasterizedGlyph from swash image
@@ -1446,8 +1450,8 @@ impl TextRenderer for CosmicTextRenderer {
                             width: img.placement.width,
                             height: img.placement.height,
                             data: img.data.clone(),
-                            offset_x: img.placement.left as i32,
-                            offset_y: -img.placement.top as i32,
+                            offset_x: img.placement.left,
+                            offset_y: -img.placement.top,
                         };
 
                         // If the raster contains no visible ink, treat as advance-only: record in cache
@@ -1635,7 +1639,7 @@ impl TextRenderer for CosmicTextRenderer {
                                         || cmd.text.to_lowercase().contains("header");
                                     if is_rep {
                                         let sampler_mode =
-                                            if max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05 {
+                                            if (0.95..=1.05).contains(&max_scale_ratio) {
                                                 "nearest"
                                             } else {
                                                 "linear"
@@ -1758,14 +1762,14 @@ impl TextRenderer for CosmicTextRenderer {
         // If atlas gained content, perform GPU upload and create bind group.
         let regions = self.shared_atlas.regions();
         if regions > 0 {
-            let prefer_nearest = max_scale_ratio >= 0.95 && max_scale_ratio <= 1.05;
+            let prefer_nearest = (0.95..=1.05).contains(&max_scale_ratio);
             if let Some((tex, view, sampler)) =
                 self.shared_atlas.upload_to_gpu(device, queue, prefer_nearest)
             {
                 // Build bind group using pipeline layout
                 let bg = text_pipeline::build_atlas_bind_group(
                     device,
-                    &*self.text_bind_layout,
+                    &self.text_bind_layout,
                     &view,
                     &sampler,
                 );
@@ -1778,7 +1782,7 @@ impl TextRenderer for CosmicTextRenderer {
                     width: aw,
                     height: ah,
                     bytes: (aw as usize) * (ah as usize),
-                    regions: regions,
+                    regions,
                     format: format!("{:?}", wgpu::TextureFormat::R8Unorm),
                 });
                 let mut uploaded = self.atlas_uploaded.lock().unwrap();

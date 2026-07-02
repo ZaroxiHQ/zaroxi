@@ -190,7 +190,7 @@ fn apply_text_transaction_impl(
                     entry.cursor = new_cursor.clone();
                 }
                 TextEdit::Delete { start, end } => {
-                    let del_len = if *end > *start { *end - *start } else { 0 };
+                    let del_len = (*end).saturating_sub(*start);
                     if entry.cursor.line == 0 {
                         let cidx = entry.cursor.column as usize;
                         if cidx > *start {
@@ -202,7 +202,7 @@ fn apply_text_transaction_impl(
                     entry.cursor = new_cursor.clone();
                 }
                 TextEdit::Replace { start, end, text } => {
-                    let old_len = if *end > *start { *end - *start } else { 0 };
+                    let old_len = (*end).saturating_sub(*start);
                     let new_len = text.chars().count();
                     if entry.cursor.line == 0 {
                         let cidx = entry.cursor.column as usize;
@@ -599,8 +599,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                 info.viewport_states.remove(&req.buffer_id);
                 info.pending_proposals.remove(&req.buffer_id);
 
-                let was_active =
-                    info.active_buffer.as_ref().map_or(false, |ab| ab == &req.buffer_id);
+                let was_active = info.active_buffer.as_ref() == Some(&req.buffer_id);
                 if was_active {
                     if info.open_buffers.is_empty() {
                         info.active_buffer = None;
@@ -1110,7 +1109,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                             );
                             let _ = history.record_command(cmd).await;
                             Ok(DispatchCommandResponse {
-                                result: CommandResult { message: format!("inserted") },
+                                result: CommandResult { message: "inserted".to_string() },
                             })
                         }
                         Err(e) => {
@@ -1869,7 +1868,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                         entry.cursor = new_cursor.clone();
                     }
                     TextEdit::Delete { start, end } => {
-                        let del_len = if *end > *start { *end - *start } else { 0 };
+                        let del_len = (*end).saturating_sub(*start);
                         if entry.cursor.line == 0 {
                             let cidx = entry.cursor.column as usize;
                             if cidx > *start {
@@ -1881,7 +1880,7 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                         entry.cursor = new_cursor.clone();
                     }
                     TextEdit::Replace { start, end, text } => {
-                        let old_len = if *end > *start { *end - *start } else { 0 };
+                        let old_len = (*end).saturating_sub(*start);
                         let new_len = text.chars().count();
                         if entry.cursor.line == 0 {
                             let cidx = entry.cursor.column as usize;
@@ -2209,15 +2208,14 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                 }
 
                 // Apply content snapshot when present.
-                if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
-                    if let Some(content) = &bs.content {
-                        if let Err(_) = store.set_text(&b.clone(), content.clone()).await {
-                            return Err(UseCaseError::InvalidCheckpoint(format!(
-                                "failed to set buffer {}",
-                                b
-                            )));
-                        }
-                    }
+                if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b)
+                    && let Some(content) = &bs.content
+                    && let Err(_) = store.set_text(&b.clone(), content.clone()).await
+                {
+                    return Err(UseCaseError::InvalidCheckpoint(format!(
+                        "failed to set buffer {}",
+                        b
+                    )));
                 }
             }
 
@@ -2295,15 +2293,14 @@ impl crate::ports::WorkspaceService for WorkspaceOrchestrator {
                 }
 
                 // Apply content snapshot when present.
-                if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b) {
-                    if let Some(content) = &bs.content {
-                        if let Err(_) = store.set_text(&b.clone(), content.clone()).await {
-                            return Err(UseCaseError::InvalidCheckpoint(format!(
-                                "failed to set buffer {}",
-                                b
-                            )));
-                        }
-                    }
+                if let Some(bs) = ck.buffers.iter().find(|bs| bs.buffer_id == *b)
+                    && let Some(content) = &bs.content
+                    && let Err(_) = store.set_text(&b.clone(), content.clone()).await
+                {
+                    return Err(UseCaseError::InvalidCheckpoint(format!(
+                        "failed to set buffer {}",
+                        b
+                    )));
                 }
             }
 
@@ -2582,7 +2579,7 @@ mod tests {
         let boot = WorkspaceBootRequest { path: PathBuf::from("./sample") };
         let boot_res = orch.boot_workspace(boot).await.expect("boot ok");
         // session id is now typed; ensure it's present.
-        assert!(boot_res.session.session_id.0.to_string().len() > 0);
+        assert!(!boot_res.session.session_id.0.to_string().is_empty());
 
         // Open buffer
         let open = OpenBufferRequest {

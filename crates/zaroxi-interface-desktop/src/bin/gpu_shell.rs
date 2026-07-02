@@ -102,15 +102,15 @@ fn main() {
         //
         // Minimal set of keys:
         // - Up, Down, Enter, A (character example)
-        if window.is_key_down(Key::Up) {
-            if let Some(ev) = map_native_to_ui_event(NativeKey::Up) {
-                EventBridge::handle_event(ev, &mut executor);
-            }
+        if window.is_key_down(Key::Up)
+            && let Some(ev) = map_native_to_ui_event(NativeKey::Up)
+        {
+            EventBridge::handle_event(ev, &mut executor);
         }
-        if window.is_key_down(Key::Down) {
-            if let Some(ev) = map_native_to_ui_event(NativeKey::Down) {
-                EventBridge::handle_event(ev, &mut executor);
-            }
+        if window.is_key_down(Key::Down)
+            && let Some(ev) = map_native_to_ui_event(NativeKey::Down)
+        {
+            EventBridge::handle_event(ev, &mut executor);
         }
 
         // Tab / Ctrl-Tab / Shift+Tab: drive real tab-activation via the presenter
@@ -178,15 +178,15 @@ fn main() {
             executor.execute(Action::SetActiveBuffer(target));
         }
 
-        if window.is_key_down(Key::Enter) {
-            if let Some(ev) = map_native_to_ui_event(NativeKey::Enter) {
-                EventBridge::handle_event(ev, &mut executor);
-            }
+        if window.is_key_down(Key::Enter)
+            && let Some(ev) = map_native_to_ui_event(NativeKey::Enter)
+        {
+            EventBridge::handle_event(ev, &mut executor);
         }
-        if window.is_key_down(Key::A) {
-            if let Some(ev) = map_native_to_ui_event(NativeKey::Char('a')) {
-                EventBridge::handle_event(ev, &mut executor);
-            }
+        if window.is_key_down(Key::A)
+            && let Some(ev) = map_native_to_ui_event(NativeKey::Char('a'))
+        {
+            EventBridge::handle_event(ev, &mut executor);
         }
 
         // Paint into the RGBA buffer using the presenter's pure function and the
@@ -199,12 +199,12 @@ fn main() {
         );
 
         // Convert RGBA8 -> 0x00RRGGBB u32 pixels (drop alpha).
-        for i in 0..(width as usize * height as usize) {
+        for (i, px) in pixel_buf.iter_mut().enumerate() {
             let base = i * 4;
             let r = rgba_buf[base] as u32;
             let g = rgba_buf[base + 1] as u32;
             let b = rgba_buf[base + 2] as u32;
-            pixel_buf[i] = (r << 16) | (g << 8) | b;
+            *px = (r << 16) | (g << 8) | b;
         }
 
         // Update window; ignore occasional update errors for robustness.

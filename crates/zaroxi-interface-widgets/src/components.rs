@@ -181,13 +181,17 @@ pub struct DiffHunk {
 ///     2px wide (3px when the run is the active hunk);
 ///   * a deletion → a short restrained tick (`diff_removed`) centred on the
 ///     boundary — distinct from additions (short vs full-run) without an arrow.
+///
 /// One unified rounded-rect primitive draws both; only height, position, and
 /// color differ. Active emphasis is a steady widening (no pulsing). No full-row
 /// tint and no edge-to-edge rule are ever drawn.
+///
 /// **Layout:** spans the editor content rect; line height supplied. Only the
 /// leftmost ~6px change lane is ever drawn.
+///
 /// **Tokens:** `diff_added` / `diff_removed` — dedicated, muted, and intentionally
 /// distinct from `error` / `success` and the syntax hues.
+///
 /// **A11y:** "Inline AI diff: A additions, R removals. Tab/Shift-Tab to navigate,
 /// Enter accept, Esc reject."
 pub struct LivingDiffLayer {
@@ -261,7 +265,7 @@ impl ZaroxiWidget for LivingDiffLayer {
         for (added, start, end) in coalesce_diff_runs(&self.hunks) {
             let run_y0 = row_top + start as f64 * self.line_height;
             let run_y1 = row_top + (end + 1) as f64 * self.line_height;
-            let is_active = active_line.map_or(false, |l| l >= start && l <= end);
+            let is_active = active_line.is_some_and(|l| l >= start && l <= end);
             let w = if is_active { ACTIVE_BAR_W } else { BAR_W };
 
             let (top, bottom, color, kind) = if added {
@@ -975,10 +979,8 @@ impl StatusBar {
         let center_compact = level <= 3;
         let mut center_parts: Vec<String> = Vec::new();
         // Reversed iterator so leftmost drops first.
-        if center_full {
-            if let Some(m) = h.mem_mb {
-                center_parts.push(format!("{m} MB"));
-            }
+        if center_full && let Some(m) = h.mem_mb {
+            center_parts.push(format!("{m} MB"));
         }
         if center_full || center_mid || center_compact {
             // Compact FPS at levels > 2: just the number, no "fps" text.
@@ -1002,7 +1004,7 @@ impl StatusBar {
         let dots_w = 26.0;
         let desired_center_w = center_text_w
             + dots_w
-            + (if center_text_w > 0.0 && center_parts.len() > 0 { 8.0 } else { 0.0 });
+            + (if center_text_w > 0.0 && !center_parts.is_empty() { 8.0 } else { 0.0 });
 
         // Place center: target centre x of the full bar.
         let center_target = r.x0 + total_w / 2.0;
@@ -1408,7 +1410,7 @@ impl ZaroxiWidget for ActivityRail {
                 glyph_str,
                 layout.location.x + slot_center_x - icon_sz * 0.5,
                 layout.location.y + icon_center_y,
-                icon_sz as f32,
+                icon_sz,
                 color,
             ));
         }
@@ -1617,7 +1619,7 @@ fn settings_trigger_rect(
         (x, y, w, 22.0)
     } else {
         let right = layout.location.x + (layout.size.width - 132.0).max(28.0 + 200.0);
-        let w = (layout.size.width - right + layout.location.x - 28.0).min(170.0).max(100.0);
+        let w = (layout.size.width - right + layout.location.x - 28.0).clamp(100.0, 170.0);
         (right, y, w, 22.0)
     }
 }
@@ -1735,9 +1737,8 @@ impl SettingsPanel {
         }
 
         let px = layout.location.x + 28.0;
-        let mut row_idx: usize = 0;
         let mut y_off = layout.location.y + 22.0 + 44.0;
-        for row in &sec.items {
+        for (row_idx, row) in sec.items.iter().enumerate() {
             if matches!(&row.kind, SettingsRowKind::Toggle { .. }) {
                 let row_h = if narrow { 40.0 } else { 48.0 };
                 hits.push(SettingsRowHit {
@@ -1750,7 +1751,6 @@ impl SettingsPanel {
                 });
             }
             y_off += if narrow { 40.0 } else { 48.0 };
-            row_idx += 1;
         }
 
         hits
@@ -2365,10 +2365,11 @@ mod tests {
     use super::*;
 
     fn layout(w: f32, h: f32) -> taffy::Layout {
-        let mut l = taffy::Layout::default();
-        l.location = taffy::geometry::Point { x: 0.0, y: 0.0 };
-        l.size = taffy::geometry::Size { width: w, height: h };
-        l
+        taffy::Layout {
+            location: taffy::geometry::Point { x: 0.0, y: 0.0 },
+            size: taffy::geometry::Size { width: w, height: h },
+            ..Default::default()
+        }
     }
 
     fn status_rect(w: f64) -> Rect {

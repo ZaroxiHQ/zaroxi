@@ -239,8 +239,7 @@ impl WorkspaceService for FakeService {
         // store pending proposal keyed by session and buffer
         {
             let mut p = self.pending.lock().unwrap();
-            let sess =
-                p.entry(req.session_id.clone()).or_insert_with(std::collections::HashMap::new);
+            let sess = p.entry(req.session_id.clone()).or_default();
             sess.insert(req.buffer_id.clone(), proposal.clone());
         }
         let resp = crate::ports::RequestAiEditResponse {
@@ -413,7 +412,7 @@ async fn ai_request_and_apply_flow() {
         &mut comp,
         view.clone(),
         session_id.clone(),
-        Some(boot_res.session.workspace_id.clone()),
+        Some(boot_res.session.workspace_id),
         service_arc.clone(),
     )
     .await;

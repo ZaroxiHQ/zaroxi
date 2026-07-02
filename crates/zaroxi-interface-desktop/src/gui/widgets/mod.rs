@@ -39,7 +39,7 @@ pub fn render_chrome(regions: &[ShellRegion], comp: Option<&DesktopComposition>)
         };
         let icons_joined = icons.join(",");
         lines.push(format!("app_rail.icons: [{}] rect={}", icons_joined, ar.rect));
-        let bottom = vec!["settings".to_string(), "account".to_string()].join(",");
+        let bottom = ["settings".to_string(), "account".to_string()].join(",");
         lines.push(format!("app_rail.bottom_icons: [{}] rect={}", bottom, ar.rect));
         let active = rail.active.unwrap_or_else(|| "explorer".to_string());
         lines.push(format!("app_rail.active: {}", active));

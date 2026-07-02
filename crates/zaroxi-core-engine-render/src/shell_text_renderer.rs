@@ -31,6 +31,12 @@ use crate::{plan::ShellDrawPlan, transcript::ShellRenderTranscript};
 #[derive(Debug, Clone, Copy)]
 pub struct ShellTextRenderer;
 
+impl Default for ShellTextRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShellTextRenderer {
     /// Create a new renderer instance.
     pub fn new() -> Self {

@@ -253,6 +253,8 @@ fn record_frame_presented() {
     }
     let now = std::time::Instant::now();
     use std::sync::Mutex;
+    // One-off local perf tracker aggregate (last_instant, frames, bytes, ema, start).
+    #[allow(clippy::type_complexity)]
     static TRACKER: Mutex<Option<(Option<std::time::Instant>, u64, u64, f64, std::time::Instant)>> =
         Mutex::new(None);
     let mut guard = TRACKER.lock().unwrap();
@@ -1044,7 +1046,7 @@ impl GuiApp {
                     active_path_str,
                     active_path_str
                         .as_ref()
-                        .map_or(false, |p| self.doc_buffers.contains_key(p.as_str())),
+                        .is_some_and(|p| self.doc_buffers.contains_key(p.as_str())),
                     keys,
                 );
             }
@@ -1100,7 +1102,7 @@ impl GuiApp {
                     rope_lines,
                     pt_total,
                     large_file_mode,
-                    large_file_mode && pt_total.map_or(false, |t| rope_lines < t),
+                    large_file_mode && pt_total.is_some_and(|t| rope_lines < t),
                     doc_buf_keys,
                 );
             }
@@ -1225,8 +1227,8 @@ impl GuiApp {
             // Estimate retained editor bytes for memory trace.
             self.editor_retained_bytes = self
                 .line_syntax_cache
-                .iter()
-                .map(|(_, v)| v.iter().map(|(s, _)| s.len()).sum::<usize>())
+                .values()
+                .map(|v| v.iter().map(|(s, _)| s.len()).sum::<usize>())
                 .sum::<usize>()
                 + self.cached_line_hashes.len() * 8
                 + self.latest_spans.as_ref().map(|s| s.len() * 32).unwrap_or(0);
@@ -1274,10 +1276,10 @@ impl GuiApp {
             // Additive only: fills the subtitle when the panel has none
             // of its own, so an active/completed request is visible
             // without clobbering real content. Idle -> None -> unchanged.
-            if ai_data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty() {
-                if let Some(status) = self.ai_session.status_label() {
-                    ai_data.ai_subtitle = Some(status);
-                }
+            if ai_data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty()
+                && let Some(status) = self.ai_session.status_label()
+            {
+                ai_data.ai_subtitle = Some(status);
             }
 
             let status_inputs = super::super::status_bar::StatusInputs {
@@ -2713,13 +2715,14 @@ impl GuiApp {
                                     postpaint_ms.max(0.0),
                                 );
                             }
-                        } else if startup_trace && frame_id == 1 {
-                            if let Some(reason) = &self.startup_second_layout_reason {
-                                eprintln!(
-                                    "ZAROXI_STARTUP_TRACE: frame={} phase=second_layout reason={}",
-                                    frame_id, reason,
-                                );
-                            }
+                        } else if startup_trace
+                            && frame_id == 1
+                            && let Some(reason) = &self.startup_second_layout_reason
+                        {
+                            eprintln!(
+                                "ZAROXI_STARTUP_TRACE: frame={} phase=second_layout reason={}",
+                                frame_id, reason,
+                            );
                         }
 
                         // ── Phase 11: atomic first-paint presentation ──
@@ -2928,21 +2931,19 @@ impl GuiApp {
                                 // ── Post-settle cache trim ─────────
                                 if !self.startup_settle_trimmed {
                                     self.startup_settle_trimmed = true;
-                                    if let Some(ref core) = self.render_core {
-                                        if let Some(tr) = core.text_renderer() {
-                                            let before_entries = tr.mem_shape_cache_bytes();
-                                            tr.evict_shaped_cold(256);
-                                            let after_entries = tr.mem_shape_cache_bytes();
-                                            if std::env::var("ZAROXI_MEM_TRACE").as_deref()
-                                                == Ok("1")
-                                            {
-                                                eprintln!(
-                                                    "ZAROXI_MEM_TRACE: frame={} phase=post_settle_trim shape_cache_before_kb={} shape_cache_after_kb={}",
-                                                    frame_id,
-                                                    before_entries as usize / 1024,
-                                                    after_entries as usize / 1024,
-                                                );
-                                            }
+                                    if let Some(ref core) = self.render_core
+                                        && let Some(tr) = core.text_renderer()
+                                    {
+                                        let before_entries = tr.mem_shape_cache_bytes();
+                                        tr.evict_shaped_cold(256);
+                                        let after_entries = tr.mem_shape_cache_bytes();
+                                        if std::env::var("ZAROXI_MEM_TRACE").as_deref() == Ok("1") {
+                                            eprintln!(
+                                                "ZAROXI_MEM_TRACE: frame={} phase=post_settle_trim shape_cache_before_kb={} shape_cache_after_kb={}",
+                                                frame_id,
+                                                before_entries as usize / 1024,
+                                                after_entries as usize / 1024,
+                                            );
                                         }
                                     }
                                     let before_syntax = self.editor_retained_bytes;
@@ -2959,8 +2960,8 @@ impl GuiApp {
                                     self.cached_line_hashes.truncate(visible_end);
                                     self.editor_retained_bytes = self
                                         .line_syntax_cache
-                                        .iter()
-                                        .map(|(_, v)| v.iter().map(|(s, _)| s.len()).sum::<usize>())
+                                        .values()
+                                        .map(|v| v.iter().map(|(s, _)| s.len()).sum::<usize>())
                                         .sum::<usize>()
                                         + self.cached_line_hashes.len() * 8
                                         + self

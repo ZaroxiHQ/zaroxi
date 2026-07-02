@@ -8,7 +8,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use uuid;
 use zaroxi_kernel_id::UuidId;
 
 /// Small, semantic session identifier newtype backed by the canonical kernel id.

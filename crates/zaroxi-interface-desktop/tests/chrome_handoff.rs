@@ -62,6 +62,6 @@ fn handoff_multiple_tabs_preserves_order_and_active() {
     assert_eq!(prim.tabs[0].id, "a");
     assert_eq!(prim.tabs[1].id, "b");
     assert_eq!(prim.tabs[2].id, "c");
-    assert_eq!(prim.tabs[1].active, true);
+    assert!(prim.tabs[1].active);
     assert_eq!(prim.active_tab_index, Some(1));
 }

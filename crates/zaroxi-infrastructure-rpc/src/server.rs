@@ -194,6 +194,12 @@ pub struct Registry {
     handlers: HashMap<String, Box<dyn Handler>>,
 }
 
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Registry {
     pub fn new() -> Self {
         Self { handlers: HashMap::new() }
@@ -203,8 +209,8 @@ impl Registry {
         self.handlers.insert(method.into(), handler);
     }
 
-    pub fn get(&self, method: &str) -> Option<&Box<dyn Handler>> {
-        self.handlers.get(method)
+    pub fn get(&self, method: &str) -> Option<&dyn Handler> {
+        self.handlers.get(method).map(|h| h.as_ref())
     }
 }
 

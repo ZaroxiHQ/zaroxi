@@ -12,6 +12,12 @@ use uuid::Uuid;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Id(Uuid);
 
+impl Default for Id {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Id {
     /// Create a new random Id.
     pub fn new() -> Self {

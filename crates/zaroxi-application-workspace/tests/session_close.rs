@@ -42,7 +42,7 @@ fn close_session_blocked_when_any_dirty() -> std::io::Result<()> {
     let res = svc.attempt_close_session();
     match res {
         AttemptCloseSessionResult::BlockedByDirty { dirty_buffers } => {
-            assert!(dirty_buffers.len() >= 1);
+            assert!(!dirty_buffers.is_empty());
             // ensure original buffer still present
             assert_eq!(svc.opened_paths().len(), 1);
         }
@@ -139,7 +139,7 @@ fn save_all_failure_keeps_session_open_and_reports() -> std::io::Result<()> {
         ResolveCloseSessionResult::SaveAllFailed { failed_buffers } => {
             assert!(!failed_buffers.is_empty());
             // session must still be open
-            assert!(svc.opened_paths().len() >= 1);
+            assert!(!svc.opened_paths().is_empty());
         }
         other => panic!("expected SaveAllFailed, got {:?}", other),
     }

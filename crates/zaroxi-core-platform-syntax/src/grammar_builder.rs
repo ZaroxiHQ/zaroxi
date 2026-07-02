@@ -27,30 +27,24 @@ fn find_tree_sitter_include_path() -> Result<String, String> {
     // Try to find via cargo metadata
     if let Ok(output) =
         std::process::Command::new("cargo").args(["metadata", "--format-version=1"]).output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
-                .map_err(|e| format!("Failed to parse cargo metadata: {}", e))?;
-            if let Some(packages) =
-                metadata.get("packages").and_then(|p: &serde_json::Value| p.as_array())
-            {
-                for package in packages {
-                    if let Some(name) =
-                        package.get("name").and_then(|n: &serde_json::Value| n.as_str())
-                    {
-                        if name == "tree-sitter" {
-                            if let Some(manifest_path) = package
-                                .get("manifest_path")
-                                .and_then(|m: &serde_json::Value| m.as_str())
-                            {
-                                let manifest = std::path::Path::new(manifest_path);
-                                if let Some(root) = manifest.parent() {
-                                    let include_path = root.join("lib").join("include");
-                                    if include_path.exists() {
-                                        return Ok(include_path.to_string_lossy().to_string());
-                                    }
-                                }
-                            }
+        let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Failed to parse cargo metadata: {}", e))?;
+        if let Some(packages) =
+            metadata.get("packages").and_then(|p: &serde_json::Value| p.as_array())
+        {
+            for package in packages {
+                if let Some(name) = package.get("name").and_then(|n: &serde_json::Value| n.as_str())
+                    && name == "tree-sitter"
+                    && let Some(manifest_path) =
+                        package.get("manifest_path").and_then(|m: &serde_json::Value| m.as_str())
+                {
+                    let manifest = std::path::Path::new(manifest_path);
+                    if let Some(root) = manifest.parent() {
+                        let include_path = root.join("lib").join("include");
+                        if include_path.exists() {
+                            return Ok(include_path.to_string_lossy().to_string());
                         }
                     }
                 }
@@ -72,17 +66,16 @@ fn find_tree_sitter_include_path() -> Result<String, String> {
                 .arg("-type")
                 .arg("f")
                 .output()
+                && output.status.success()
             {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    for line in stdout.lines() {
-                        if line.contains("tree_sitter") {
-                            let path: &std::path::Path = std::path::Path::new(line);
-                            if let Some(parent) = path.parent() {
-                                if let Some(grandparent) = parent.parent() {
-                                    return Ok(grandparent.to_string_lossy().to_string());
-                                }
-                            }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.contains("tree_sitter") {
+                        let path: &std::path::Path = std::path::Path::new(line);
+                        if let Some(parent) = path.parent()
+                            && let Some(grandparent) = parent.parent()
+                        {
+                            return Ok(grandparent.to_string_lossy().to_string());
                         }
                     }
                 }
@@ -93,14 +86,12 @@ fn find_tree_sitter_include_path() -> Result<String, String> {
     // Last resort: try to use pkg-config
     if let Ok(output) =
         std::process::Command::new("pkg-config").args(["--cflags", "tree-sitter"]).output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for part in stdout.split_whitespace() {
-                if part.starts_with("-I") {
-                    let path = &part[2..];
-                    return Ok(path.to_string());
-                }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for part in stdout.split_whitespace() {
+            if let Some(path) = part.strip_prefix("-I") {
+                return Ok(path.to_string());
             }
         }
     }
@@ -361,7 +352,7 @@ pub fn build_and_install_grammar(language_id: &str) -> Result<(), String> {
         };
 
         let all_paths: Vec<std::path::PathBuf> =
-            possible_paths.into_iter().chain(markdown_paths.into_iter()).collect();
+            possible_paths.into_iter().chain(markdown_paths).collect();
 
         let mut found = None;
         for path in &all_paths {
@@ -371,8 +362,8 @@ pub fn build_and_install_grammar(language_id: &str) -> Result<(), String> {
             }
         }
 
-        lib_path =
-            found.ok_or_else(|| format!("Could not find built library after tree-sitter build"))?;
+        lib_path = found
+            .ok_or_else(|| "Could not find built library after tree-sitter build".to_string())?;
     } else {
         // Manual compilation with cc
         println!("Using cc to build {}...", language_id);
@@ -705,15 +696,14 @@ fn manual_compile(
         include_args.push(source_dir.to_str().unwrap());
 
         // For TypeScript/TSX, we need to include the common directory which is two levels up
-        if language_id == "typescript" || language_id == "tsx" {
-            if let Some(parent) = source_dir.parent() {
-                if let Some(grandparent) = parent.parent() {
-                    let common_dir = grandparent.join("common");
-                    if common_dir.exists() {
-                        include_args.push("-I");
-                        include_args.push(grandparent.to_str().unwrap());
-                    }
-                }
+        if (language_id == "typescript" || language_id == "tsx")
+            && let Some(parent) = source_dir.parent()
+            && let Some(grandparent) = parent.parent()
+        {
+            let common_dir = grandparent.join("common");
+            if common_dir.exists() {
+                include_args.push("-I");
+                include_args.push(grandparent.to_str().unwrap());
             }
         }
 
@@ -727,11 +717,11 @@ fn manual_compile(
         }
 
         // Add include path for the repo root (for common/ directory)
-        if let Some(repo_root) = source_dir.parent() {
-            if repo_root.join("common").exists() {
-                include_args.push("-I");
-                include_args.push(repo_root.to_str().unwrap());
-            }
+        if let Some(repo_root) = source_dir.parent()
+            && repo_root.join("common").exists()
+        {
+            include_args.push("-I");
+            include_args.push(repo_root.to_str().unwrap());
         }
 
         include_args.extend_from_slice(&["-o", object_file.to_str().unwrap()]);
@@ -739,7 +729,7 @@ fn manual_compile(
         let output = std::process::Command::new("cc")
             .args(&include_args)
             .arg(&source_path)
-            .current_dir(&source_dir)
+            .current_dir(source_dir)
             .output()
             .map_err(|e| format!("Failed to compile {}: {}", source_file, e))?;
 

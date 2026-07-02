@@ -13,6 +13,9 @@ use zaroxi_core_engine_render::UiBlock;
 use zaroxi_core_engine_style::StyleTokens;
 
 /// Build a plain filled panel block with no border.
+// Constructor mirrors the `UiBlock` field set (geometry + per-role colors); the
+// argument list intentionally matches the block's shape.
+#[allow(clippy::too_many_arguments)]
 pub fn make_panel_block(
     id: &str,
     title: &str,

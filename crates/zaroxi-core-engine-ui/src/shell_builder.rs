@@ -481,10 +481,10 @@ pub fn build_shell_widget_tree(
         let btn_y = layout.right_panel.y + header_h + AI_ACTION_BTN_GAP;
         let mut btn_x = layout.right_panel.x + AI_ACTION_X_INSET;
         for (label, idx) in &[
-            ("Explain", BTN_ID_AI_EXPLAIN as usize),
-            ("Review", BTN_ID_AI_REVIEW as usize),
-            ("Apply", BTN_ID_AI_APPLY as usize),
-            ("Reject", BTN_ID_AI_REJECT as usize),
+            ("Explain", BTN_ID_AI_EXPLAIN),
+            ("Review", BTN_ID_AI_REVIEW),
+            ("Apply", BTN_ID_AI_APPLY),
+            ("Reject", BTN_ID_AI_REJECT),
         ] {
             tree.push(ShellWidget::Button {
                 id: WidgetId::button(*idx),

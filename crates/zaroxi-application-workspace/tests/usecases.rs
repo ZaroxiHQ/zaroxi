@@ -76,8 +76,8 @@ async fn orchestrator_flow_happy_path() {
             let inner = self.inner.clone();
             Box::pin(async move {
                 let mut m = inner.lock().unwrap();
-                if m.contains_key(&key) {
-                    m.insert(key, content);
+                if let std::collections::hash_map::Entry::Occupied(mut e) = m.entry(key) {
+                    e.insert(content);
                     Ok(())
                 } else {
                     Err(buffer_ports::BufferError("buffer not found".to_string()))
@@ -102,13 +102,13 @@ async fn orchestrator_flow_happy_path() {
                 };
                 match txn {
                     buffer_ports::TextEdit::Insert { index, text } => {
-                        let bpos = char_to_byte(&s, index);
+                        let bpos = char_to_byte(s, index);
                         s.insert_str(bpos, &text);
                         Ok(())
                     }
                     buffer_ports::TextEdit::Delete { start, end } => {
-                        let bstart = char_to_byte(&s, start);
-                        let bend = char_to_byte(&s, end);
+                        let bstart = char_to_byte(s, start);
+                        let bend = char_to_byte(s, end);
                         if bstart <= bend && bend <= s.len() {
                             s.replace_range(bstart..bend, "");
                             Ok(())
@@ -117,8 +117,8 @@ async fn orchestrator_flow_happy_path() {
                         }
                     }
                     buffer_ports::TextEdit::Replace { start, end, text } => {
-                        let bstart = char_to_byte(&s, start);
-                        let bend = char_to_byte(&s, end);
+                        let bstart = char_to_byte(s, start);
+                        let bend = char_to_byte(s, end);
                         if bstart <= bend && bend <= s.len() {
                             s.replace_range(bstart..bend, &text);
                             Ok(())
@@ -154,7 +154,7 @@ async fn orchestrator_flow_happy_path() {
     let boot = WorkspaceBootRequest { path: PathBuf::from("./sample") };
     let boot_res = orchestrator.boot_workspace(boot).await.expect("boot ok");
     // session id is now typed; ensure it's present.
-    assert!(boot_res.session.session_id.0.to_string().len() > 0);
+    assert!(!boot_res.session.session_id.0.to_string().is_empty());
 
     let open = OpenBufferRequest {
         session_id: boot_res.session.session_id.clone(),

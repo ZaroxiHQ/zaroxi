@@ -52,4 +52,3 @@ full_renderer = [
     "lru",
     "vello",
 ]
-legacy_cosmic = []

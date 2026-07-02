@@ -56,25 +56,13 @@ pub struct PanelTab {
 ///
 /// Phase 38: Renamed from ChromePrimitive. Removed IDE-specific fields
 /// (ai_indicator, content_preview).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ChromePrimitive {
     pub chrome_label: Option<String>,
     pub tabs: Vec<PanelTab>,
     pub active_tab_index: Option<usize>,
     pub active_panel_id: Option<String>,
     pub status_text: Option<String>,
-}
-
-impl Default for ChromePrimitive {
-    fn default() -> Self {
-        Self {
-            chrome_label: None,
-            tabs: Vec::new(),
-            active_tab_index: None,
-            active_panel_id: None,
-            status_text: None,
-        }
-    }
 }
 
 impl From<ShellChrome> for ChromePrimitive {

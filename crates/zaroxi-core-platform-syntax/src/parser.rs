@@ -58,10 +58,10 @@ impl ParserPool {
 
         let mut pool = self.parsers.lock();
 
-        if let Some(parsers) = pool.get_mut(language) {
-            if let Some(parser) = parsers.pop() {
-                return Some(parser);
-            }
+        if let Some(parsers) = pool.get_mut(language)
+            && let Some(parser) = parsers.pop()
+        {
+            return Some(parser);
         }
 
         let mut parser = Parser::new();
@@ -86,7 +86,7 @@ impl ParserPool {
     /// Return a parser to the pool for reuse.
     pub fn release(&self, language: &LanguageId, parser: Parser) {
         let mut pool = self.parsers.lock();
-        pool.entry(*language).or_insert_with(Vec::new).push(parser);
+        pool.entry(*language).or_default().push(parser);
     }
 }
 
@@ -143,7 +143,7 @@ impl SyntaxTree {
             ))
         })?;
 
-        let tree = parser.parse(text, None).ok_or_else(|| SyntaxError::ParseError)?;
+        let tree = parser.parse(text, None).ok_or(SyntaxError::ParseError)?;
 
         pool.release(&language, parser);
 

@@ -149,6 +149,21 @@ pub trait ZaroxiWidget {
     }
 }
 
+impl WidgetLayer {
+    /// All layers in paint order.
+    pub const ALL: [WidgetLayer; 9] = [
+        WidgetLayer::Background,
+        WidgetLayer::Editor,
+        WidgetLayer::DiffLayer,
+        WidgetLayer::Gutter,
+        WidgetLayer::Minimap,
+        WidgetLayer::StatusBar,
+        WidgetLayer::ActivityRail,
+        WidgetLayer::Palette,
+        WidgetLayer::Tooltip,
+    ];
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,25 +197,12 @@ mod tests {
 
     #[test]
     fn layout_rect_maps_box() {
-        let mut l = taffy::Layout::default();
-        l.location = taffy::geometry::Point { x: 10.0, y: 20.0 };
-        l.size = taffy::geometry::Size { width: 100.0, height: 40.0 };
+        let l = taffy::Layout {
+            location: taffy::geometry::Point { x: 10.0, y: 20.0 },
+            size: taffy::geometry::Size { width: 100.0, height: 40.0 },
+            ..Default::default()
+        };
         let r = layout_rect(&l);
         assert_eq!((r.x0, r.y0, r.x1, r.y1), (10.0, 20.0, 110.0, 60.0));
     }
-}
-
-impl WidgetLayer {
-    /// All layers in paint order.
-    pub const ALL: [WidgetLayer; 9] = [
-        WidgetLayer::Background,
-        WidgetLayer::Editor,
-        WidgetLayer::DiffLayer,
-        WidgetLayer::Gutter,
-        WidgetLayer::Minimap,
-        WidgetLayer::StatusBar,
-        WidgetLayer::ActivityRail,
-        WidgetLayer::Palette,
-        WidgetLayer::Tooltip,
-    ];
 }

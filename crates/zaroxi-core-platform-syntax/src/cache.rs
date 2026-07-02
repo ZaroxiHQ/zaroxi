@@ -58,10 +58,11 @@ pub fn get_or_compute(
     let mut guard = CACHE.lock();
 
     // Fast‑path: existing state with same version → return cached spans.
-    if let Some(state) = guard.get_mut(path) {
-        if state.version == version && state.language == language {
-            return Ok(state.spans.clone());
-        }
+    if let Some(state) = guard.get_mut(path)
+        && state.version == version
+        && state.language == language
+    {
+        return Ok(state.spans.clone());
     }
 
     // ── Compute fresh ──────────────────────────────────────────────
@@ -105,10 +106,11 @@ pub fn get_cached(
     language: LanguageId,
 ) -> Option<Vec<HighlightSpan>> {
     let guard = CACHE.lock();
-    if let Some(state) = guard.get(path) {
-        if state.version == version && state.language == language {
-            return Some(state.spans.clone());
-        }
+    if let Some(state) = guard.get(path)
+        && state.version == version
+        && state.language == language
+    {
+        return Some(state.spans.clone());
     }
     None
 }

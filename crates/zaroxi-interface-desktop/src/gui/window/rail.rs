@@ -271,103 +271,103 @@ impl RailPanel {
         }
 
         // ── Per-row blocks (aligned with widget tree hit regions) ──
-        if let Some(ref items) = data.panel_items {
-            if !items.is_empty() {
-                // Rows start below the rendered search box (see `content_top`).
-                let mut y_off = content_top;
-                let max_y = rect.y + rect.h - EXPLORER_MAX_Y_INSET;
-                let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
+        if let Some(ref items) = data.panel_items
+            && !items.is_empty()
+        {
+            // Rows start below the rendered search box (see `content_top`).
+            let mut y_off = content_top;
+            let max_y = rect.y + rect.h - EXPLORER_MAX_Y_INSET;
+            let row_y_inset = (EXPLORER_ROW_H - EXPLORER_ROW_VIS_H) / 2.0;
 
-                for (item_idx, item) in items.iter().enumerate() {
-                    // Vertical scroll: skip the first `scroll_top` rows. The
-                    // absolute `item_idx` stays in the block id so it matches the
-                    // widget tree (hit-test / hover bridging).
-                    if item_idx < data.scroll_top {
-                        continue;
-                    }
-                    let row_h = EXPLORER_ROW_H;
-                    if y_off + row_h > max_y {
-                        break;
-                    }
-                    let indent_px = item.depth as f32 * EXPLORER_INDENT_PX;
-                    let row_x = rect.x + pad + EXPLORER_ROW_TEXT_INSET + indent_px;
-                    let row_y = y_off + row_y_inset;
-                    let row_w = (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0);
-                    let row_h_vis = EXPLORER_ROW_VIS_H;
-
-                    // Tree styling: inactive rows have no background at all
-                    // (transparent), so the list reads as a file tree rather than
-                    // a stack of buttons. The active/open row — and the
-                    // keyboard-selected row while searching — get a flat,
-                    // square-cornered highlight (calm and integrated, not a pill).
-                    let is_selected = data.selected_row == Some(item_idx);
-                    let fill = if item.is_active || is_selected {
-                        tokens.rail_item_active.to_array()
-                    } else {
-                        [0.0, 0.0, 0.0, 0.0]
-                    };
-                    let text_c = if item.is_active || is_selected {
-                        tokens.text_primary.to_array()
-                    } else {
-                        tokens.text_secondary.to_array()
-                    };
-
-                    // 1. Background / selection / hover block. Carries no text;
-                    //    the hover bridge patches this block's `header_color`.
-                    blocks.push(UiBlock {
-                        id: format!("explorer_row_{}", item_idx),
-                        rect: zaroxi_core_engine_render::Rect {
-                            x: row_x,
-                            y: row_y,
-                            w: row_w,
-                            h: row_h_vis,
-                        },
-                        header_color: Some(fill),
-                        header_only: true,
-                        ..Default::default()
-                    });
-
-                    // 2. Disclosure + type-icon column (fixed width). Drawn at
-                    //    `row_x`; clipped to the glyph column so a wide icon can't
-                    //    bleed into the name column.
-                    let glyph_text = icons::glyph_prefix(item.is_dir, item.expanded, &item.label);
-                    blocks.push(explorer_text_block(
-                        format!("explorer_glyph_{}", item_idx),
-                        glyph_text,
-                        row_x - EXPLORER_TITLE_PAD,
-                        row_y,
-                        EXPLORER_GLYPH_COL_W + EXPLORER_TITLE_PAD,
-                        row_h_vis,
-                        text_c,
-                    ));
-
-                    // 3. Filename column — fixed left edge at `row_x + glyph col`.
-                    //    Truncates with an ellipsis and highlights the matched
-                    //    substring while a search query is active.
-                    let name_text_x = row_x + EXPLORER_GLYPH_COL_W;
-                    let name_w = (row_x + row_w - name_text_x).max(4.0);
-                    push_name_blocks(
-                        &mut blocks,
-                        item_idx,
-                        &item.label,
-                        &data.search_query,
-                        name_text_x,
-                        name_w,
-                        row_y,
-                        row_h_vis,
-                        data.char_advance,
-                        text_c,
-                        tokens.accent.to_array(),
-                    );
-                    y_off += row_h;
+            for (item_idx, item) in items.iter().enumerate() {
+                // Vertical scroll: skip the first `scroll_top` rows. The
+                // absolute `item_idx` stays in the block id so it matches the
+                // widget tree (hit-test / hover bridging).
+                if item_idx < data.scroll_top {
+                    continue;
                 }
-                return SidebarBlocks {
-                    blocks,
-                    cta_hit_rect,
-                    search_hit_rect,
-                    row_hit_rects: Vec::new(),
+                let row_h = EXPLORER_ROW_H;
+                if y_off + row_h > max_y {
+                    break;
+                }
+                let indent_px = item.depth as f32 * EXPLORER_INDENT_PX;
+                let row_x = rect.x + pad + EXPLORER_ROW_TEXT_INSET + indent_px;
+                let row_y = y_off + row_y_inset;
+                let row_w = (inner_w - EXPLORER_ROW_W_REDUCTION - indent_px).max(4.0);
+                let row_h_vis = EXPLORER_ROW_VIS_H;
+
+                // Tree styling: inactive rows have no background at all
+                // (transparent), so the list reads as a file tree rather than
+                // a stack of buttons. The active/open row — and the
+                // keyboard-selected row while searching — get a flat,
+                // square-cornered highlight (calm and integrated, not a pill).
+                let is_selected = data.selected_row == Some(item_idx);
+                let fill = if item.is_active || is_selected {
+                    tokens.rail_item_active.to_array()
+                } else {
+                    [0.0, 0.0, 0.0, 0.0]
                 };
+                let text_c = if item.is_active || is_selected {
+                    tokens.text_primary.to_array()
+                } else {
+                    tokens.text_secondary.to_array()
+                };
+
+                // 1. Background / selection / hover block. Carries no text;
+                //    the hover bridge patches this block's `header_color`.
+                blocks.push(UiBlock {
+                    id: format!("explorer_row_{}", item_idx),
+                    rect: zaroxi_core_engine_render::Rect {
+                        x: row_x,
+                        y: row_y,
+                        w: row_w,
+                        h: row_h_vis,
+                    },
+                    header_color: Some(fill),
+                    header_only: true,
+                    ..Default::default()
+                });
+
+                // 2. Disclosure + type-icon column (fixed width). Drawn at
+                //    `row_x`; clipped to the glyph column so a wide icon can't
+                //    bleed into the name column.
+                let glyph_text = icons::glyph_prefix(item.is_dir, item.expanded, &item.label);
+                blocks.push(explorer_text_block(
+                    format!("explorer_glyph_{}", item_idx),
+                    glyph_text,
+                    row_x - EXPLORER_TITLE_PAD,
+                    row_y,
+                    EXPLORER_GLYPH_COL_W + EXPLORER_TITLE_PAD,
+                    row_h_vis,
+                    text_c,
+                ));
+
+                // 3. Filename column — fixed left edge at `row_x + glyph col`.
+                //    Truncates with an ellipsis and highlights the matched
+                //    substring while a search query is active.
+                let name_text_x = row_x + EXPLORER_GLYPH_COL_W;
+                let name_w = (row_x + row_w - name_text_x).max(4.0);
+                push_name_blocks(
+                    &mut blocks,
+                    item_idx,
+                    &item.label,
+                    &data.search_query,
+                    name_text_x,
+                    name_w,
+                    row_y,
+                    row_h_vis,
+                    data.char_advance,
+                    text_c,
+                    tokens.accent.to_array(),
+                );
+                y_off += row_h;
             }
+            return SidebarBlocks {
+                blocks,
+                cta_hit_rect,
+                search_hit_rect,
+                row_hit_rects: Vec::new(),
+            };
         }
 
         // A workspace is loaded but there are no rows to show (empty folder or a
@@ -422,28 +422,26 @@ impl RailPanel {
         });
 
         // CTA button for empty state
-        if empty_message {
-            if let Some(ref btn_label) = data.empty_button_label {
-                let (btn_x, btn_y, btn_w, btn_h) =
-                    explorer_cta_button_rect((rect.x, rect.y, rect.w, rect.h));
-                let btn_rect =
-                    zaroxi_core_engine_render::Rect { x: btn_x, y: btn_y, w: btn_w, h: btn_h };
+        if empty_message && let Some(ref btn_label) = data.empty_button_label {
+            let (btn_x, btn_y, btn_w, btn_h) =
+                explorer_cta_button_rect((rect.x, rect.y, rect.w, rect.h));
+            let btn_rect =
+                zaroxi_core_engine_render::Rect { x: btn_x, y: btn_y, w: btn_w, h: btn_h };
 
-                blocks.push(UiBlock {
-                    id: "explorer_open_workspace_btn".to_string(),
-                    title: btn_label.clone(),
-                    content: btn_label.clone(),
-                    rect: btn_rect,
-                    header_color: Some(tokens.accent.to_array()),
-                    content_color: Some(tokens.accent.to_array()),
-                    corner_radius: 4.0,
-                    content_spans: Some(vec![(btn_label.clone(), tokens.text_primary.to_array())]),
-                    text_color: Some(tokens.text_primary.to_array()),
-                    ..Default::default()
-                });
+            blocks.push(UiBlock {
+                id: "explorer_open_workspace_btn".to_string(),
+                title: btn_label.clone(),
+                content: btn_label.clone(),
+                rect: btn_rect,
+                header_color: Some(tokens.accent.to_array()),
+                content_color: Some(tokens.accent.to_array()),
+                corner_radius: 4.0,
+                content_spans: Some(vec![(btn_label.clone(), tokens.text_primary.to_array())]),
+                text_color: Some(tokens.text_primary.to_array()),
+                ..Default::default()
+            });
 
-                cta_hit_rect = Some((btn_x, btn_y, btn_w, btn_h));
-            }
+            cta_hit_rect = Some((btn_x, btn_y, btn_w, btn_h));
         }
 
         SidebarBlocks { blocks, cta_hit_rect, search_hit_rect, row_hit_rects: Vec::new() }

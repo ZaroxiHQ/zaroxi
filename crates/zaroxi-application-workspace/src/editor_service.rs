@@ -166,10 +166,7 @@ impl EditorService {
         let path = match path_opt {
             Some(p) => p,
             None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "target buffer has no associated filesystem path",
-                ));
+                return Err(io::Error::other("target buffer has no associated filesystem path"));
             }
         };
 
@@ -198,7 +195,7 @@ impl EditorService {
             match state.active {
                 Some(i) => i,
                 None => {
-                    return Err(io::Error::new(io::ErrorKind::Other, "no active buffer"));
+                    return Err(io::Error::other("no active buffer"));
                 }
             }
         };
@@ -243,10 +240,7 @@ impl EditorService {
                 let buf = buf_arc.lock().unwrap();
                 buf.to_text()
             };
-            if let Err(e) = storage.write_file(&path, &text) {
-                // Stop on first failure and return the error.
-                return Err(e);
-            }
+            storage.write_file(&path, &text)?;
             // update buffer saved state
             {
                 let mut buf = buf_arc.lock().unwrap();

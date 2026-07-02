@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::gui::ShellWorkContent;
 use crate::gui::window::editor::EditorContentData;
 use zaroxi_core_editor_largefile::DocumentBuffer;
@@ -68,7 +66,7 @@ pub(crate) fn prepare_editor_data(
     spans: &[HighlightSpan],
     spans_version: u64,
     sem: &SemanticColors,
-    line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    line_syntax_cache: &mut crate::gui::window::syntax_color::LineSyntaxCache,
     cached_line_hashes: &mut Vec<u64>,
     large_file_mode: bool,
     visible_line_range: Option<(usize, usize)>,
@@ -112,21 +110,19 @@ pub(crate) fn prepare_editor_data(
     let cache_valid = should_use_editor_cache(lines_hash, *cached_editor_lines_hash)
         && spans_version == *cached_editor_spans_version;
 
-    if cache_valid {
-        if let Some(cached) = cached_editor_data {
-            if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1") {
-                eprintln!("ZAROXI_TABS: editor_cache_reuse owner={owner_key} allowed=true",);
-            }
-            if editor_spans_debug_enabled() {
-                eprintln!(
-                    "ZAROXI_DEBUG_EDITOR_SPANS: cache_hit spans_version={} has_spans={} large_file_mode={}",
-                    spans_version,
-                    cached.editor_spans.is_some(),
-                    large_file_mode,
-                );
-            }
-            return cached.clone();
+    if cache_valid && let Some(cached) = cached_editor_data {
+        if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1") {
+            eprintln!("ZAROXI_TABS: editor_cache_reuse owner={owner_key} allowed=true",);
         }
+        if editor_spans_debug_enabled() {
+            eprintln!(
+                "ZAROXI_DEBUG_EDITOR_SPANS: cache_hit spans_version={} has_spans={} large_file_mode={}",
+                spans_version,
+                cached.editor_spans.is_some(),
+                large_file_mode,
+            );
+        }
+        return cached.clone();
     }
     if std::env::var("ZAROXI_DEBUG_TABS").as_deref() == Ok("1") {
         eprintln!(
@@ -190,11 +186,13 @@ mod tests {
     use zaroxi_interface_theme::theme::SemanticColors;
 
     fn wc_with(lines: &[&str]) -> Option<ShellWorkContent> {
-        let mut wc = ShellWorkContent::default();
-        wc.editor_body = Some(zaroxi_core_engine_ui::ContentView {
-            lines: lines.iter().map(|s| s.to_string()).collect(),
+        let wc = ShellWorkContent {
+            editor_body: Some(zaroxi_core_engine_ui::ContentView {
+                lines: lines.iter().map(|s| s.to_string()).collect(),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
         Some(wc)
     }
 
@@ -209,7 +207,7 @@ mod tests {
         content_generation: u64,
     ) -> u64 {
         let sem = SemanticColors::dark();
-        let mut lsc = HashMap::new();
+        let mut lsc = crate::gui::window::syntax_color::LineSyntaxCache::new();
         let mut clh = Vec::new();
         prepare_editor_data(
             wc,

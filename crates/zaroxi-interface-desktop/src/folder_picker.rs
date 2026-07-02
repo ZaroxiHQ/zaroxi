@@ -302,13 +302,10 @@ impl FolderPicker for SystemPicker {
 
         let outcome = SystemPicker::pick(PickerKind::OpenFolder, &mut diag);
 
-        match &outcome {
-            PickerOutcome::Unavailable { reason, .. } => {
-                log::warn!("ZAROXI_PICKER: all backends exhausted, returning Unavailable");
-                log::warn!("ZAROXI_PICKER: reason: {}", reason);
-                eprintln!("ZAROXI_PICKER: UNAVAILABLE — {}", reason);
-            }
-            _ => {}
+        if let PickerOutcome::Unavailable { reason, .. } = &outcome {
+            log::warn!("ZAROXI_PICKER: all backends exhausted, returning Unavailable");
+            log::warn!("ZAROXI_PICKER: reason: {}", reason);
+            eprintln!("ZAROXI_PICKER: UNAVAILABLE — {}", reason);
         }
 
         outcome

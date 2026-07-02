@@ -208,12 +208,8 @@ mod tests {
             .widgets
             .iter()
             .filter_map(|w| {
-                if let ShellWidget::ScrollBar { id, thumb_rect, .. } = w {
-                    if matches!(id, zaroxi_core_engine_ui::WidgetId::Scrollbar { index: 1 }) {
-                        Some(thumb_rect.y)
-                    } else {
-                        Some(thumb_rect.y)
-                    }
+                if let ShellWidget::ScrollBar { thumb_rect, .. } = w {
+                    Some(thumb_rect.y)
                 } else {
                     None
                 }

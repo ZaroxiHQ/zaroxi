@@ -73,10 +73,10 @@ pub fn transcript_to_string_cached(
     prev_cache: &mut Option<String>,
 ) -> String {
     let s = transcript.to_string();
-    if let Some(prev) = prev_cache {
-        if prev == &s {
-            return prev.clone();
-        }
+    if let Some(prev) = prev_cache
+        && prev == &s
+    {
+        return prev.clone();
     }
     *prev_cache = Some(s.clone());
     s

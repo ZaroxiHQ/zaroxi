@@ -44,10 +44,7 @@ impl SelectionLine {
     pub fn compose_from_optional_bounds(
         bounds: Option<(usize, usize, usize, usize, bool)>,
     ) -> Option<Self> {
-        match bounds {
-            Some((sl, sc, el, ec, vis)) => Some(Self::from_bounds(sl, sc, el, ec, vis)),
-            None => None,
-        }
+        bounds.map(|(sl, sc, el, ec, vis)| Self::from_bounds(sl, sc, el, ec, vis))
     }
 
     /// Render the compact single-line representation for shell output.

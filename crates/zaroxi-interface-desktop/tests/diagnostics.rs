@@ -63,7 +63,7 @@ fn composition_no_active_buffer_reports_none() {
 #[cfg(feature = "use_core_lsp")]
 fn diagnostics_snapshot_for_uri_ready_and_counts() {
     // main.rs should produce a Ready snapshot with at least one warning from the mock adapter.
-    let snap: Option<DiagnosticsSnapshot> = diagnostics_snapshot_for_uri("main.rs");
+    let snap = diagnostics_snapshot_for_uri("main.rs");
     match snap {
         Some(s) => {
             assert_eq!(s.provider, ProviderState::Ready);

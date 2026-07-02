@@ -126,6 +126,10 @@ impl EditorBufferState {
     }
 
     /// Return the full text content as a String.
+    // Hot path: called per-keystroke on the full buffer (sync re-highlight).
+    // A `Display` shim would force `ToString` to allocate + copy a second time;
+    // the inherent form returns the rope's own single allocation directly.
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.rope.to_string()
     }
@@ -566,7 +570,7 @@ impl EditorBufferState {
         let end = self.caret;
         let (line, _) = self.rope.char_index_to_line_col(start);
         let is_line_start = start == self.rope.line_start(line).unwrap_or(start);
-        let affected_end = if is_line_start && line > 0 { line + 1 } else { line + 1 };
+        let affected_end = line + 1;
         let affected_start = if is_line_start && line > 0 { line - 1 } else { line };
         self.rope.delete(start, end);
         self.caret = start;

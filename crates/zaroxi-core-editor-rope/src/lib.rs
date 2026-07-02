@@ -359,17 +359,15 @@ impl Rope {
             //   char_index + (position of newline within text) + 1
             // where +1 skips past the newline character.
             let mut new_starts: Vec<usize> = Vec::with_capacity(insert_lines);
-            let mut rel_ci = 0usize;
-            for c in text.chars() {
+            for (rel_ci, c) in text.chars().enumerate() {
                 if c == '\n' {
                     new_starts.push(char_index + rel_ci + 1);
                 }
-                rel_ci += 1;
             }
             // Splice new line starts after the line that was split.
             let splice_at = ins_line + 1;
             let n_new = new_starts.len();
-            self.line_starts.splice(splice_at..splice_at, new_starts.into_iter());
+            self.line_starts.splice(splice_at..splice_at, new_starts);
             // Shift all subsequent entries by the total inserted character count.
             for ls in &mut self.line_starts[splice_at + n_new..] {
                 *ls += insert_chars;
@@ -659,6 +657,9 @@ impl LineIndex {
     /// This is the general path; prefer [`LineIndex::from_lines`] when the
     /// document is already held as a slice of lines, to avoid materializing the
     /// joined string.
+    // Infallible constructor used pervasively as `Rope::from_str(...)`; `FromStr`
+    // would force a `Result` return and churn every call site for no benefit.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(text: &str) -> Self {
         let bytes = text.as_bytes();
         let mut line_starts = Vec::with_capacity((bytes.len() / 24).max(1) + 1);

@@ -11,6 +11,12 @@ use zaroxi_application_ai::ports::{AiClient, AiError, AiRequest, AiResponseDTO, 
 /// MockAiClient implements AiClient and returns a canned response.
 pub struct MockAiClient;
 
+impl Default for MockAiClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockAiClient {
     pub fn new() -> Self {
         MockAiClient

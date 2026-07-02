@@ -48,9 +48,7 @@ impl ShellFrameModel {
         session_identity: Option<String>,
     ) -> Option<Self> {
         // Mandatory piece: active_text_view must be present for a meaningful frame.
-        if active_text_view.is_none() {
-            return None;
-        }
+        active_text_view.as_ref()?;
 
         Some(Self {
             session_identity,
@@ -72,9 +70,7 @@ impl ShellFrameModel {
         let tv = crate::TextView::from_composition(comp);
 
         // Short-circuit if no visible text.
-        if tv.is_none() {
-            return None;
-        }
+        tv.as_ref()?;
 
         let sel = crate::SelectionView::from_composition(comp);
 
@@ -146,21 +142,9 @@ impl ShellFrameModel {
             .as_ref()
             .map(|s| format!("sel={}..{}", s.start.line, s.end.line))
             .unwrap_or_else(|| "<no-selection>".to_string());
-        let vp = self
-            .viewport_summary
-            .as_ref()
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "<no-viewport>".to_string());
-        let status = self
-            .status_text
-            .as_ref()
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "<no-status>".to_string());
-        let chrome = self
-            .shell_chrome
-            .as_ref()
-            .map(|s| s.clone())
-            .unwrap_or_else(|| "<no-chrome>".to_string());
+        let vp = self.viewport_summary.clone().unwrap_or_else(|| "<no-viewport>".to_string());
+        let status = self.status_text.clone().unwrap_or_else(|| "<no-status>".to_string());
+        let chrome = self.shell_chrome.clone().unwrap_or_else(|| "<no-chrome>".to_string());
         format!(
             "ShellFrameModel{{ {}, {}, vp={}, status={}, chrome={} }}",
             active, sel, vp, status, chrome

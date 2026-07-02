@@ -264,7 +264,7 @@ async fn last_command_line_present_and_parsed() {
             Result<aw_ports::GetRecentCommandsResponse, aw_ports::UseCaseError>,
         > {
             let sid = self.sid.clone();
-            let wid = self.wid.clone();
+            let wid = self.wid;
             Box::pin(async move {
                 let rec = aw_ports::CommandRecord::new_success(
                     aw_ports::CommandKind::OpenBuffer { path: PathBuf::from("main.rs") },
@@ -332,11 +332,11 @@ async fn last_command_line_present_and_parsed() {
         }
     }
 
-    let fake_service = std::sync::Arc::new(FakeSvc::new(sid.clone(), wid.clone()))
+    let fake_service = std::sync::Arc::new(FakeSvc::new(sid.clone(), wid))
         as std::sync::Arc<dyn aw_ports::WorkspaceService>;
 
     let mut comp = DesktopComposition::new();
-    comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service))
+    comp.refresh_with_service(arc, sid.clone(), Some(wid), Some(fake_service))
         .await
         .expect("refresh ok");
 

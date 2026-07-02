@@ -19,7 +19,7 @@ fn click_trace(msg: &str) {
 
 fn build_unavailable_user_message(reason: &str) -> String {
     if reason.len() > 90 {
-        format!("Workspace picker unavailable — see log for details")
+        "Workspace picker unavailable — see log for details".to_string()
     } else {
         format!("Workspace picker unavailable: {}", reason)
     }

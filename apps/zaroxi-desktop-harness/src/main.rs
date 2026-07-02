@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use tokio;
-
 use zaroxi_application_workspace::ports::{
     GetActiveBufferRequest, GetSessionSnapshotRequest, ListBuffersRequest, LoadCheckpointRequest,
     OpenBufferRequest, SaveCheckpointRequest, SetActiveBufferRequest, WorkspaceBootRequest,
@@ -11,9 +9,6 @@ use zaroxi_interface_desktop::projections::active_buffer_line::ActiveBufferLine;
 use zaroxi_interface_desktop::projections::location_line::LocationLine;
 use zaroxi_interface_desktop::projections::selection_line::SelectionLine;
 use zaroxi_interface_desktop::projections::session_identity_line::SessionIdentityLine;
-
-// Infra adapters
-use zaroxi_infrastructure_ai_mock;
 
 // Application orchestrator (concrete implementation lives in application crate)
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
@@ -265,8 +260,7 @@ async fn main() -> Result<(), String> {
                             let char_w: u32 = 8;
                             let content_inset: u32 = 6;
 
-                            let gutter_x =
-                                if content_x > gutter_width { content_x - gutter_width } else { 0 };
+                            let gutter_x = content_x.saturating_sub(gutter_width);
 
                             let top_line_val = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
 

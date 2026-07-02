@@ -90,8 +90,8 @@ impl Buffer {
         // Many downstream tests and user expectations prefer to drop a single
         // leading newline produced in that scenario. Remove exactly one leading
         // '\n' if present to normalize copy/cut semantics.
-        if joined.starts_with('\n') {
-            return Some(joined[1..].to_string());
+        if let Some(rest) = joined.strip_prefix('\n') {
+            return Some(rest.to_string());
         }
 
         Some(joined)
@@ -147,11 +147,11 @@ impl Buffer {
             let last = format!("{}{}", insert_lines.pop().unwrap(), tail);
             let mut new_lines: Vec<String> = Vec::new();
             new_lines.push(first);
-            new_lines.extend(insert_lines.into_iter());
+            new_lines.extend(insert_lines);
             new_lines.push(last);
             // replace current line with new_lines
             let new_count = new_lines.len();
-            self.lines.splice(cur_line..=cur_line, new_lines.into_iter());
+            self.lines.splice(cur_line..=cur_line, new_lines);
             self.cursor_line = cur_line + (new_count - 1);
             // place cursor at end of inserted text (last line length minus tail length)
             self.cursor_col = self.lines[self.cursor_line].chars().count() - tail.chars().count();
@@ -234,7 +234,7 @@ impl Buffer {
             let merged = if before.is_empty() || after.is_empty() {
                 format!("{}{}", before, after)
             } else {
-                let last_before = before.chars().rev().next().unwrap();
+                let last_before = before.chars().next_back().unwrap();
                 let first_after = after.chars().next().unwrap();
                 if last_before.is_whitespace() || first_after.is_whitespace() {
                     format!("{}{}", before, after)
@@ -377,11 +377,9 @@ impl Buffer {
             self.cursor_line -= 1;
             self.cursor_col = self.lines[self.cursor_line].chars().count();
         }
-        if keep_selection {
-            if let Some(sel) = &mut self.selection {
-                sel.active_line = self.cursor_line;
-                sel.active_col = self.cursor_col;
-            }
+        if keep_selection && let Some(sel) = &mut self.selection {
+            sel.active_line = self.cursor_line;
+            sel.active_col = self.cursor_col;
         }
         self.clamp_cursor();
     }
@@ -399,11 +397,9 @@ impl Buffer {
             self.cursor_line += 1;
             self.cursor_col = 0;
         }
-        if keep_selection {
-            if let Some(sel) = &mut self.selection {
-                sel.active_line = self.cursor_line;
-                sel.active_col = self.cursor_col;
-            }
+        if keep_selection && let Some(sel) = &mut self.selection {
+            sel.active_line = self.cursor_line;
+            sel.active_col = self.cursor_col;
         }
         self.clamp_cursor();
     }
@@ -419,11 +415,9 @@ impl Buffer {
             let line_len = self.lines[self.cursor_line].chars().count();
             self.cursor_col = min(self.cursor_col, line_len);
         }
-        if keep_selection {
-            if let Some(sel) = &mut self.selection {
-                sel.active_line = self.cursor_line;
-                sel.active_col = self.cursor_col;
-            }
+        if keep_selection && let Some(sel) = &mut self.selection {
+            sel.active_line = self.cursor_line;
+            sel.active_col = self.cursor_col;
         }
         self.clamp_cursor();
     }
@@ -439,11 +433,9 @@ impl Buffer {
             let line_len = self.lines[self.cursor_line].chars().count();
             self.cursor_col = min(self.cursor_col, line_len);
         }
-        if keep_selection {
-            if let Some(sel) = &mut self.selection {
-                sel.active_line = self.cursor_line;
-                sel.active_col = self.cursor_col;
-            }
+        if keep_selection && let Some(sel) = &mut self.selection {
+            sel.active_line = self.cursor_line;
+            sel.active_col = self.cursor_col;
         }
         self.clamp_cursor();
     }

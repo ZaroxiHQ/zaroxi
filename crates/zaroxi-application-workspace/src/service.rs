@@ -17,6 +17,12 @@ struct WorkspaceServiceState {
     running: bool,
 }
 
+impl Default for WorkspaceService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkspaceService {
     /// Create a new workspace service.
     pub fn new() -> Self {
@@ -102,6 +108,6 @@ mod tests {
         let svc = WorkspaceService::new();
         let cur = std::env::current_dir().unwrap();
         let id = svc.open_workspace(cur).await.expect("open ok");
-        assert!(id.as_uuid().to_string().len() > 0);
+        assert!(!id.as_uuid().to_string().is_empty());
     }
 }

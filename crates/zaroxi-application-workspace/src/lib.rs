@@ -10,7 +10,7 @@ pub mod workspace_view;
 
 use std::collections::HashSet;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use zaroxi_core_workspace_files::FileStorage;
 use zaroxi_domain_workspace::file_tree::ExplorerItemView;
 
@@ -18,12 +18,12 @@ use zaroxi_domain_workspace::file_tree::ExplorerItemView;
 ///
 /// These convenience functions are small facades used by integration tests and
 /// simple harnesses; richer application commands should live in the ports/usecases.
-pub fn save_buffer_to_disk(path: &PathBuf, contents: &str) -> io::Result<()> {
+pub fn save_buffer_to_disk(path: &Path, contents: &str) -> io::Result<()> {
     let storage = zaroxi_core_workspace_files::DiskFileStorage::new();
     storage.write_file(path, contents)
 }
 
-pub fn read_file_from_disk(path: &PathBuf) -> io::Result<String> {
+pub fn read_file_from_disk(path: &Path) -> io::Result<String> {
     let storage = zaroxi_core_workspace_files::DiskFileStorage::new();
     storage.read_file(path)
 }
@@ -171,26 +171,24 @@ impl WorkspaceTree {
             let mut children = Vec::new();
             let mut children_loaded = false;
 
-            if is_dir {
-                if let Ok(entries) = zaroxi_core_workspace_files::list_dir_entries(path) {
-                    for (p, _is_dir) in entries {
-                        let child_name = p
-                            .file_name()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_else(|| p.to_string_lossy().to_string());
-                        children.push(WorkspaceEntry {
-                            id: p.to_string_lossy().to_string(),
-                            name: child_name,
-                            path: p,
-                            is_dir: _is_dir,
-                            children: Vec::new(),
-                            expanded: false,
-                            children_loaded: false,
-                        });
-                    }
-                    sort_workspace_entries(&mut children);
-                    children_loaded = true;
+            if is_dir && let Ok(entries) = zaroxi_core_workspace_files::list_dir_entries(path) {
+                for (p, _is_dir) in entries {
+                    let child_name = p
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| p.to_string_lossy().to_string());
+                    children.push(WorkspaceEntry {
+                        id: p.to_string_lossy().to_string(),
+                        name: child_name,
+                        path: p,
+                        is_dir: _is_dir,
+                        children: Vec::new(),
+                        expanded: false,
+                        children_loaded: false,
+                    });
                 }
+                sort_workspace_entries(&mut children);
+                children_loaded = true;
             }
 
             Ok(WorkspaceEntry {
@@ -282,7 +280,7 @@ impl WorkspaceTree {
             out: &mut Vec<ExplorerItemView>,
         ) {
             let is_open = opened_ids.contains(&node.id);
-            let is_active = active_id.map_or(false, |a| a == node.id);
+            let is_active = active_id.is_some_and(|a| a == node.id);
 
             out.push(ExplorerItemView {
                 id: node.id.clone(),
@@ -330,6 +328,12 @@ pub struct WorkspaceExplorer {
     full_load_done: bool,
 }
 
+impl Default for WorkspaceExplorer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkspaceExplorer {
     pub fn new() -> Self {
         WorkspaceExplorer { tree: None, selected: None, full_load_done: false }
@@ -346,43 +350,41 @@ impl WorkspaceExplorer {
     /// Toggle expand/collapse for a directory entry by id.
     /// Lazily loads children on first expand.
     pub fn toggle_expand(&mut self, id: &str) -> bool {
-        if let Some(ref mut t) = self.tree {
-            if let Some(node) = WorkspaceTree::find_mut_entry(&mut t.root, id) {
-                if node.is_dir {
-                    if !node.expanded && !node.children_loaded {
-                        if let Err(_e) = WorkspaceTree::load_children(node) {
-                            return false;
-                        }
-                    }
-                    node.expanded = !node.expanded;
-                    return true;
-                }
+        if let Some(ref mut t) = self.tree
+            && let Some(node) = WorkspaceTree::find_mut_entry(&mut t.root, id)
+            && node.is_dir
+        {
+            if !node.expanded
+                && !node.children_loaded
+                && let Err(_e) = WorkspaceTree::load_children(node)
+            {
+                return false;
             }
+            node.expanded = !node.expanded;
+            return true;
         }
         false
     }
 
     /// Select an entry by id. Returns true if selection succeeded.
     pub fn select(&mut self, id: &str) -> bool {
-        if let Some(ref t) = self.tree {
-            if WorkspaceTree::find_entry(&t.root, id).is_some() {
-                self.selected = Some(id.to_string());
-                return true;
-            }
+        if let Some(ref t) = self.tree
+            && WorkspaceTree::find_entry(&t.root, id).is_some()
+        {
+            self.selected = Some(id.to_string());
+            return true;
         }
         false
     }
 
     /// Open the currently selected entry if it is a file and return its contents.
     pub fn open_selected(&self) -> io::Result<Option<String>> {
-        if let Some(ref sel) = self.selected {
-            if let Some(ref t) = self.tree {
-                if let Some(entry) = WorkspaceTree::find_entry(&t.root, sel) {
-                    if !entry.is_dir {
-                        return crate::read_file_from_disk(&entry.path).map(Some);
-                    }
-                }
-            }
+        if let Some(ref sel) = self.selected
+            && let Some(ref t) = self.tree
+            && let Some(entry) = WorkspaceTree::find_entry(&t.root, sel)
+            && !entry.is_dir
+        {
+            return crate::read_file_from_disk(&entry.path).map(Some);
         }
         Ok(None)
     }

@@ -164,13 +164,13 @@ impl GuiApp {
                 self.committed_active_file = Some(desired_committed.clone());
             }
             let desired_bid = crate::ports::BufferId(buffer_key_from_path(canon));
-            if let Some(ref mut comp) = self.composition {
-                if let Some(ref mut meta) = comp.metadata {
-                    for it in meta.opened_buffers.iter_mut() {
-                        it.active = same_document(&it.buffer_id.to_string(), canon);
-                    }
-                    meta.active_buffer = Some(desired_bid);
+            if let Some(ref mut comp) = self.composition
+                && let Some(ref mut meta) = comp.metadata
+            {
+                for it in meta.opened_buffers.iter_mut() {
+                    it.active = same_document(&it.buffer_id.to_string(), canon);
                 }
+                meta.active_buffer = Some(desired_bid);
             }
             if debug_tabs {
                 eprintln!("ZAROXI_VISIBLE_TAB_MODEL: active_consistency_healed -> {canon}");
@@ -523,67 +523,14 @@ impl GuiApp {
             // while the background read is in flight.  The intent is NOT
             // consumed here — it remains for the real-content commit
             // which will set backend_ready=true on the same editor entry.
-            if is_loading_chrome {
-                if let Some(peek_intent) = self.open_intent {
-                    match peek_intent {
-                        OpenIntent::Preview => {
-                            let old_preview: Option<String> =
-                                self.editor_group.preview_path().map(|s| s.to_string());
-                            if let Some(ref prev_path) = old_preview {
-                                if *prev_path != *act_path {
-                                    let saved_scroll = self
-                                        .composition
-                                        .as_ref()
-                                        .and_then(|c| c.metadata.as_ref())
-                                        .map(|m| m.editor_scroll_top_line)
-                                        .unwrap_or(0);
-                                    editor_group::EditorGroup::save_view_state_for(
-                                        &mut self.document_view_states,
-                                        &prev_path,
-                                        saved_scroll,
-                                        &self.editor_buffer,
-                                    );
-                                }
-                            }
-                            let _ = self.editor_group.open_preview(
-                                act_path.clone(),
-                                buffer_id.clone(),
-                                display.clone(),
-                                backend_kind,
-                                false, // loading=true → backend_ready=false
-                            );
-                            if doc_lifecycle_trace_enabled() {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: loading_preview_set path={} display={} backend_kind={:?}",
-                                    act_path, display, backend_kind,
-                                );
-                            }
-                        }
-                        OpenIntent::Pinned => {
-                            let _ = self.editor_group.open_or_activate_pinned(
-                                act_path.clone(),
-                                buffer_id.clone(),
-                                display.clone(),
-                                backend_kind,
-                                false,
-                            );
-                        }
-                        OpenIntent::ActivateExisting => {
-                            self.editor_group.activate_by_path(act_path);
-                        }
-                    }
-                }
-                // Fall through: intent NOT consumed, real-content commit
-                // below will set backend_ready=true.
-            }
-
-            match intent {
-                Some(OpenIntent::Preview) => {
-                    // Save outgoing preview state before replacing.
-                    let old_preview: Option<String> =
-                        self.editor_group.preview_path().map(|s| s.to_string());
-                    if let Some(ref prev_path) = old_preview {
-                        if *prev_path != *act_path {
+            if is_loading_chrome && let Some(peek_intent) = self.open_intent {
+                match peek_intent {
+                    OpenIntent::Preview => {
+                        let old_preview: Option<String> =
+                            self.editor_group.preview_path().map(|s| s.to_string());
+                        if let Some(ref prev_path) = old_preview
+                            && *prev_path != *act_path
+                        {
                             let saved_scroll = self
                                 .composition
                                 .as_ref()
@@ -592,16 +539,67 @@ impl GuiApp {
                                 .unwrap_or(0);
                             editor_group::EditorGroup::save_view_state_for(
                                 &mut self.document_view_states,
-                                &prev_path,
+                                prev_path,
                                 saved_scroll,
                                 &self.editor_buffer,
                             );
-                            if doc_lifecycle_trace_enabled() {
-                                eprintln!(
-                                    "ZAROXI_DOC_LIFECYCLE: preview_save old={} scroll={}",
-                                    prev_path, saved_scroll,
-                                );
-                            }
+                        }
+                        let _ = self.editor_group.open_preview(
+                            act_path.clone(),
+                            buffer_id.clone(),
+                            display.clone(),
+                            backend_kind,
+                            false, // loading=true → backend_ready=false
+                        );
+                        if doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: loading_preview_set path={} display={} backend_kind={:?}",
+                                act_path, display, backend_kind,
+                            );
+                        }
+                    }
+                    OpenIntent::Pinned => {
+                        let _ = self.editor_group.open_or_activate_pinned(
+                            act_path.clone(),
+                            buffer_id.clone(),
+                            display.clone(),
+                            backend_kind,
+                            false,
+                        );
+                    }
+                    OpenIntent::ActivateExisting => {
+                        self.editor_group.activate_by_path(act_path);
+                    }
+                }
+            }
+            // Fall through: intent NOT consumed, real-content commit
+            // below will set backend_ready=true.
+
+            match intent {
+                Some(OpenIntent::Preview) => {
+                    // Save outgoing preview state before replacing.
+                    let old_preview: Option<String> =
+                        self.editor_group.preview_path().map(|s| s.to_string());
+                    if let Some(ref prev_path) = old_preview
+                        && *prev_path != *act_path
+                    {
+                        let saved_scroll = self
+                            .composition
+                            .as_ref()
+                            .and_then(|c| c.metadata.as_ref())
+                            .map(|m| m.editor_scroll_top_line)
+                            .unwrap_or(0);
+                        editor_group::EditorGroup::save_view_state_for(
+                            &mut self.document_view_states,
+                            prev_path,
+                            saved_scroll,
+                            &self.editor_buffer,
+                        );
+                        if doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: preview_save old={} scroll={}",
+                                prev_path, saved_scroll,
+                            );
                         }
                     }
                     // Replace the loading entry (or create fresh) with
@@ -647,17 +645,15 @@ impl GuiApp {
                     // survives tab switches.
                     {
                         let in_opened = self.is_path_in_opened_buffers(act_path);
-                        if !in_opened {
-                            if let Some(ref mut comp) = self.composition {
-                                let disp = act_path.rsplit('/').next().map(|s| s.to_string());
-                                let bid = crate::ports::BufferId(format!("buf:{}", act_path));
-                                comp.add_opened_buffer_direct(bid.clone(), disp);
-                                if doc_lifecycle_trace_enabled() {
-                                    eprintln!(
-                                        "ZAROXI_DOC_LIFECYCLE: pinned_register path={} was_preview={}",
-                                        act_path, was_preview,
-                                    );
-                                }
+                        if !in_opened && let Some(ref mut comp) = self.composition {
+                            let disp = act_path.rsplit('/').next().map(|s| s.to_string());
+                            let bid = crate::ports::BufferId(format!("buf:{}", act_path));
+                            comp.add_opened_buffer_direct(bid.clone(), disp);
+                            if doc_lifecycle_trace_enabled() {
+                                eprintln!(
+                                    "ZAROXI_DOC_LIFECYCLE: pinned_register path={} was_preview={}",
+                                    act_path, was_preview,
+                                );
                             }
                         }
                     }
@@ -678,21 +674,19 @@ impl GuiApp {
         // tab clicks on already-active tabs) must NOT trigger a checkout
         // and must preserve the live scroll/caret/rope state.
         let mut vs_from_store: Option<DocumentViewState> = None;
-        if active_file_changed {
-            if let Some(key) = new_doc_key.as_deref() {
-                vs_from_store = self.document_view_states.remove(key);
-            }
+        if active_file_changed && let Some(key) = new_doc_key.as_deref() {
+            vs_from_store = self.document_view_states.remove(key);
         }
-        if let Some(ref vs) = vs_from_store {
-            if doc_lifecycle_trace_enabled() {
-                eprintln!(
-                    "ZAROXI_DOC_LIFECYCLE: checkout_view path={} kind={} caret={} scroll={}",
-                    new_doc_key.as_deref().unwrap_or("?"),
-                    if self.large_file_mode { "piece_table" } else { "rope" },
-                    vs.caret_line,
-                    vs.scroll_top,
-                );
-            }
+        if let Some(ref vs) = vs_from_store
+            && doc_lifecycle_trace_enabled()
+        {
+            eprintln!(
+                "ZAROXI_DOC_LIFECYCLE: checkout_view path={} kind={} caret={} scroll={}",
+                new_doc_key.as_deref().unwrap_or("?"),
+                if self.large_file_mode { "piece_table" } else { "rope" },
+                vs.caret_line,
+                vs.scroll_top,
+            );
         }
 
         // Backend-specific content restoration (only on actual file switch).
@@ -787,17 +781,17 @@ impl GuiApp {
         // Also sets the guard flag so later code can detect that this
         // commit already dealt with a reactivated document.
         if let Some(ref vs) = vs_from_store {
-            if let Some(ref mut comp) = self.composition {
-                if let Some(ref mut meta) = comp.metadata {
-                    meta.editor_scroll_top_line = vs.scroll_top;
-                    meta.editor_scroll_px = vs.scroll_top as f32 * lc::LINE_HEIGHT;
-                    if doc_lifecycle_trace_enabled() {
-                        eprintln!(
-                            "ZAROXI_DOC_LIFECYCLE: scroll_restored key={} scroll={}",
-                            new_doc_key.as_deref().unwrap_or("?"),
-                            vs.scroll_top,
-                        );
-                    }
+            if let Some(ref mut comp) = self.composition
+                && let Some(ref mut meta) = comp.metadata
+            {
+                meta.editor_scroll_top_line = vs.scroll_top;
+                meta.editor_scroll_px = vs.scroll_top as f32 * lc::LINE_HEIGHT;
+                if doc_lifecycle_trace_enabled() {
+                    eprintln!(
+                        "ZAROXI_DOC_LIFECYCLE: scroll_restored key={} scroll={}",
+                        new_doc_key.as_deref().unwrap_or("?"),
+                        vs.scroll_top,
+                    );
                 }
             }
             self.restored_view_state_this_activation = true;
@@ -836,10 +830,10 @@ impl GuiApp {
             self.cockpit_retained_bytes = 0;
             // Evict cold shape-cache entries so the new file's glyphs
             // don't compete with stale entries from the previous file.
-            if let Some(ref core) = self.render_core {
-                if let Some(tr) = core.text_renderer() {
-                    tr.evict_shaped_cold(512);
-                }
+            if let Some(ref core) = self.render_core
+                && let Some(tr) = core.text_renderer()
+            {
+                tr.evict_shaped_cold(512);
             }
         }
 
@@ -863,7 +857,7 @@ impl GuiApp {
         // `char_count() == 0` clause materializes the real content on that
         // loading→ready transition, mirroring the large-file unconditional
         // hydration so normal and large files share one first-open contract.
-        let body_has_content = wc.editor_body.as_ref().map_or(false, |b| !b.lines.is_empty());
+        let body_has_content = wc.editor_body.as_ref().is_some_and(|b| !b.lines.is_empty());
         let needs_rope_materialize = !restored_from_store
             && wc.editor_body.is_some()
             && (buffer_changed

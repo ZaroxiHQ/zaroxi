@@ -147,12 +147,15 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
                 q.push(' ');
                 set_explorer_search(app, q);
             }
-            Key::Character(text) if !app.ctrl_held && !app.cmd_held => {
-                if !text.is_empty() && !text.chars().any(|c| c.is_control()) {
-                    let mut q = current_explorer_query(app);
-                    q.push_str(text.as_str());
-                    set_explorer_search(app, q);
-                }
+            Key::Character(text)
+                if !app.ctrl_held
+                    && !app.cmd_held
+                    && !text.is_empty()
+                    && !text.chars().any(|c| c.is_control()) =>
+            {
+                let mut q = current_explorer_query(app);
+                q.push_str(text.as_str());
+                set_explorer_search(app, q);
             }
             _ => {}
         }
@@ -727,168 +730,165 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                 .as_deref()
                 .and_then(|s| s.strip_prefix("buf:"))
                 .map(|s| s.to_string());
-            if let Some(path_str) = key {
-                if let Some(db) = app.doc_buffers.get_mut(&path_str) {
-                    let total = db.total_lines();
-                    let (first, last_excl) = *edit_range;
-                    let new_line_count = app.editor_buffer.line_count();
-                    // For large files the rope holds only the viewport
-                    // window, so its line count will never equal the
-                    // PieceTable total.  Structural detection must
-                    // compare the rope's own line count before/after
-                    // the edit, not against the full document total.
-                    let structural = if pre_edit_rope_line_count > 0 {
-                        pre_edit_rope_line_count != new_line_count
+            if let Some(path_str) = key
+                && let Some(db) = app.doc_buffers.get_mut(&path_str)
+            {
+                let total = db.total_lines();
+                let (first, last_excl) = *edit_range;
+                let new_line_count = app.editor_buffer.line_count();
+                // For large files the rope holds only the viewport
+                // window, so its line count will never equal the
+                // PieceTable total.  Structural detection must
+                // compare the rope's own line count before/after
+                // the edit, not against the full document total.
+                let structural = if pre_edit_rope_line_count > 0 {
+                    pre_edit_rope_line_count != new_line_count
+                } else {
+                    new_line_count != total
+                };
+
+                if structural {
+                    // Structural edit: compute old/new ranges and do a
+                    // single splice in doc_buffers.  The rope line count
+                    // delta tells us whether lines were inserted or deleted.
+                    // For large files use the rope's own pre-edit line
+                    // count — never the stale body.lines snaphot.
+                    let delta = if pre_edit_rope_line_count > 0 {
+                        pre_edit_rope_line_count as isize - new_line_count as isize
                     } else {
-                        new_line_count != total
+                        pre_sync_body_line_count as isize - new_line_count as isize
                     };
-
-                    if structural {
-                        // Structural edit: compute old/new ranges and do a
-                        // single splice in doc_buffers.  The rope line count
-                        // delta tells us whether lines were inserted or deleted.
-                        // For large files use the rope's own pre-edit line
-                        // count — never the stale body.lines snaphot.
-                        let delta = if pre_edit_rope_line_count > 0 {
-                            pre_edit_rope_line_count as isize - new_line_count as isize
-                        } else {
-                            pre_sync_body_line_count as isize - new_line_count as isize
-                        };
-                        let old_range_lines = if delta > 0 {
-                            // Deletion: old had more lines.
-                            (last_excl.saturating_sub(first)) + delta as usize
-                        } else {
-                            // Insertion / no-op: old range was 1 line.
-                            1usize
-                        };
-                        let old_last = (first + old_range_lines).min(total);
-                        let new_last = last_excl.min(new_line_count).max(first);
-
-                        let old_lines: Vec<String> = if first < total {
-                            db.lines_in_range(first, old_last.saturating_sub(1))
-                                .into_iter()
-                                .map(|(_, s)| s)
-                                .collect()
-                        } else {
-                            vec![]
-                        };
-                        let new_lines: Vec<String> = (first..new_last)
-                            .map(|i| {
-                                let raw = app.editor_buffer.rope().line(i).unwrap_or_default();
-                                raw
-                            })
-                            .collect();
-
-                        let old_text = old_lines.join("\n");
-                        let new_text = new_lines.join("\n");
-
-                        let byte_start = if first < total {
-                            db.line_col_to_byte_offset(first, 0)
-                        } else {
-                            db.total_bytes()
-                        };
-                        let old_byte_len = old_text.len();
-
-                        if old_byte_len > 0 {
-                            db.delete(byte_start, byte_start + old_byte_len);
-                        }
-                        if !new_text.is_empty() {
-                            if first >= total {
-                                db.insert(byte_start, &format!("\n{}", new_text));
-                            } else {
-                                db.insert(byte_start, &new_text);
-                            }
-                        }
-
-                        if super::debug::doc_lifecycle_trace_enabled() {
-                            let ws = app.editor_buffer.window_start_line;
-                            let pt_after = db.total_lines();
-                            eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=1 path={} window_start={} local_first={} local_last_excl={} abs_old_last={} abs_new_last={} old_range_lines={} delta={} rope_pre={} rope_post={} pt_before={} pt_after={} source={}",
-                                path_str,
-                                ws,
-                                first,
-                                last_excl,
-                                old_last,
-                                new_last,
-                                old_range_lines,
-                                delta,
-                                pre_edit_rope_line_count,
-                                new_line_count,
-                                total,
-                                pt_after,
-                                if pre_edit_rope_line_count > 0 {
-                                    "rope_pre_edit"
-                                } else {
-                                    "body_lines"
-                                },
-                            );
-                        }
-                        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                            eprintln!(
-                                "ZAROXI_DEBUG_LARGE_FILE: structural_splice first={} old_last={} new_last={} delta={} old_text_len={} new_text_len={} rope_lines={} doc_linesOLD={} doc_linesNEW={}",
-                                first,
-                                old_last,
-                                new_last,
-                                delta,
-                                old_text.len(),
-                                new_text.len(),
-                                new_line_count,
-                                total,
-                                db.total_lines(),
-                            );
-                        }
+                    let old_range_lines = if delta > 0 {
+                        // Deletion: old had more lines.
+                        (last_excl.saturating_sub(first)) + delta as usize
                     } else {
-                        // Content-only edit: iterate affected lines.
-                        // Compare and insert RAW content (no tab expansion)
-                        // so the PieceTable stays byte-identical to the rope.
-                        let old_last = last_excl.min(total).max(first);
-                        let mut i = first;
-                        while i < old_last {
-                            let new_raw = app.editor_buffer.rope().line(i).unwrap_or_default();
-                            let old = db
-                                .lines_in_range(i, i)
-                                .into_iter()
-                                .next()
-                                .map(|(_, s)| s)
-                                .unwrap_or_default();
-                            if old != new_raw {
-                                let byte_start = db.line_col_to_byte_offset(i, 0);
-                                let old_byte_len = old.len();
-                                if old_byte_len > 0 {
-                                    db.delete(byte_start, byte_start + old_byte_len);
-                                }
-                                if !new_raw.is_empty() {
-                                    db.insert(byte_start, &new_raw);
-                                }
-                            }
-                            i += 1;
-                        }
+                        // Insertion / no-op: old range was 1 line.
+                        1usize
+                    };
+                    let old_last = (first + old_range_lines).min(total);
+                    let new_last = last_excl.min(new_line_count).max(first);
 
-                        if super::debug::doc_lifecycle_trace_enabled() {
-                            let ws = app.editor_buffer.window_start_line;
-                            eprintln!(
-                                "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=0 path={} window_start={} local_first={} abs_last={} rope_pre={} rope_post={} pt_total={} source={}",
-                                path_str,
-                                ws,
-                                first,
-                                old_last,
-                                pre_edit_rope_line_count,
-                                new_line_count,
-                                total,
-                                if pre_edit_rope_line_count > 0 {
-                                    "rope_pre_edit"
-                                } else {
-                                    "body_lines"
-                                },
-                            );
+                    let old_lines: Vec<String> = if first < total {
+                        db.lines_in_range(first, old_last.saturating_sub(1))
+                            .into_iter()
+                            .map(|(_, s)| s)
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    let new_lines: Vec<String> = (first..new_last)
+                        .map(|i| app.editor_buffer.rope().line(i).unwrap_or_default())
+                        .collect();
+
+                    let old_text = old_lines.join("\n");
+                    let new_text = new_lines.join("\n");
+
+                    let byte_start = if first < total {
+                        db.line_col_to_byte_offset(first, 0)
+                    } else {
+                        db.total_bytes()
+                    };
+                    let old_byte_len = old_text.len();
+
+                    if old_byte_len > 0 {
+                        db.delete(byte_start, byte_start + old_byte_len);
+                    }
+                    if !new_text.is_empty() {
+                        if first >= total {
+                            db.insert(byte_start, &format!("\n{}", new_text));
+                        } else {
+                            db.insert(byte_start, &new_text);
                         }
-                        if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
-                            eprintln!(
-                                "ZAROXI_DEBUG_LARGE_FILE: content_edit_synced first={} last={} rope_lines={} doc_lines={}",
-                                first, old_last, new_line_count, total,
-                            );
+                    }
+
+                    if super::debug::doc_lifecycle_trace_enabled() {
+                        let ws = app.editor_buffer.window_start_line;
+                        let pt_after = db.total_lines();
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=1 path={} window_start={} local_first={} local_last_excl={} abs_old_last={} abs_new_last={} old_range_lines={} delta={} rope_pre={} rope_post={} pt_before={} pt_after={} source={}",
+                            path_str,
+                            ws,
+                            first,
+                            last_excl,
+                            old_last,
+                            new_last,
+                            old_range_lines,
+                            delta,
+                            pre_edit_rope_line_count,
+                            new_line_count,
+                            total,
+                            pt_after,
+                            if pre_edit_rope_line_count > 0 {
+                                "rope_pre_edit"
+                            } else {
+                                "body_lines"
+                            },
+                        );
+                    }
+                    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_DEBUG_LARGE_FILE: structural_splice first={} old_last={} new_last={} delta={} old_text_len={} new_text_len={} rope_lines={} doc_linesOLD={} doc_linesNEW={}",
+                            first,
+                            old_last,
+                            new_last,
+                            delta,
+                            old_text.len(),
+                            new_text.len(),
+                            new_line_count,
+                            total,
+                            db.total_lines(),
+                        );
+                    }
+                } else {
+                    // Content-only edit: iterate affected lines.
+                    // Compare and insert RAW content (no tab expansion)
+                    // so the PieceTable stays byte-identical to the rope.
+                    let old_last = last_excl.min(total).max(first);
+                    let mut i = first;
+                    while i < old_last {
+                        let new_raw = app.editor_buffer.rope().line(i).unwrap_or_default();
+                        let old = db
+                            .lines_in_range(i, i)
+                            .into_iter()
+                            .next()
+                            .map(|(_, s)| s)
+                            .unwrap_or_default();
+                        if old != new_raw {
+                            let byte_start = db.line_col_to_byte_offset(i, 0);
+                            let old_byte_len = old.len();
+                            if old_byte_len > 0 {
+                                db.delete(byte_start, byte_start + old_byte_len);
+                            }
+                            if !new_raw.is_empty() {
+                                db.insert(byte_start, &new_raw);
+                            }
                         }
+                        i += 1;
+                    }
+
+                    if super::debug::doc_lifecycle_trace_enabled() {
+                        let ws = app.editor_buffer.window_start_line;
+                        eprintln!(
+                            "ZAROXI_DOC_LIFECYCLE: piece_table_sync structural=0 path={} window_start={} local_first={} abs_last={} rope_pre={} rope_post={} pt_total={} source={}",
+                            path_str,
+                            ws,
+                            first,
+                            old_last,
+                            pre_edit_rope_line_count,
+                            new_line_count,
+                            total,
+                            if pre_edit_rope_line_count > 0 {
+                                "rope_pre_edit"
+                            } else {
+                                "body_lines"
+                            },
+                        );
+                    }
+                    if std::env::var("ZAROXI_DEBUG_LARGE_FILE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "ZAROXI_DEBUG_LARGE_FILE: content_edit_synced first={} last={} rope_lines={} doc_lines={}",
+                            first, old_last, new_line_count, total,
+                        );
                     }
                 }
             }
@@ -908,31 +908,28 @@ fn sync_editor_to_service(app: &mut GuiApp) {
                 }
                 // For large files that were preview-only (not in opened_buffers),
                 // register now so the pinned tab survives.
-                if let Some(ref key) = path_edited.map(|s| s.to_string()) {
-                    if app.doc_buffers.contains_key(key.as_str()) {
-                        let in_opened = app
-                            .composition
-                            .as_ref()
-                            .and_then(|c| c.metadata.as_ref())
-                            .map(|m| {
-                                m.opened_buffers.iter().any(|b| {
-                                    b.buffer_id.to_string().strip_prefix("buf:").unwrap_or("")
-                                        == key
-                                })
+                if let Some(ref key) = path_edited.map(|s| s.to_string())
+                    && app.doc_buffers.contains_key(key.as_str())
+                {
+                    let in_opened = app
+                        .composition
+                        .as_ref()
+                        .and_then(|c| c.metadata.as_ref())
+                        .map(|m| {
+                            m.opened_buffers.iter().any(|b| {
+                                b.buffer_id.to_string().strip_prefix("buf:").unwrap_or("") == key
                             })
-                            .unwrap_or(false);
-                        if !in_opened {
-                            if let Some(ref mut comp) = app.composition {
-                                let display = key.rsplit('/').next().map(|s| s.to_string());
-                                let bid = crate::ports::BufferId(format!("buf:{}", key));
-                                comp.add_opened_buffer_direct(bid, display);
-                                if super::debug::doc_lifecycle_trace_enabled() {
-                                    eprintln!(
-                                        "ZAROXI_DOC_LIFECYCLE: preview_autopromote_register path={}",
-                                        key,
-                                    );
-                                }
-                            }
+                        })
+                        .unwrap_or(false);
+                    if !in_opened && let Some(ref mut comp) = app.composition {
+                        let display = key.rsplit('/').next().map(|s| s.to_string());
+                        let bid = crate::ports::BufferId(format!("buf:{}", key));
+                        comp.add_opened_buffer_direct(bid, display);
+                        if super::debug::doc_lifecycle_trace_enabled() {
+                            eprintln!(
+                                "ZAROXI_DOC_LIFECYCLE: preview_autopromote_register path={}",
+                                key,
+                            );
                         }
                     }
                 }

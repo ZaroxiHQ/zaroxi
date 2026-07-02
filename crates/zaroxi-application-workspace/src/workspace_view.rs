@@ -309,7 +309,7 @@ pub fn build_work_content(
         let subtitle = d.buffer_id.as_ref().map(|b| b.to_string()).unwrap_or_default();
         // Guard: if visible_window has no lines, treat it as absent so we
         // don't build source="visible_window" content with an empty payload.
-        let vw_valid = visible_window.as_ref().map_or(false, |vw| !vw.lines.is_empty());
+        let vw_valid = visible_window.as_ref().is_some_and(|vw| !vw.lines.is_empty());
         let lines: Vec<String> = if vw_valid {
             visible_window.as_ref().unwrap().lines.clone()
         } else {
@@ -409,20 +409,17 @@ pub async fn request_close_session<C: CloseContext>(
 ) -> Result<ActionResult, String> {
     if let Some(s) = service {
         let req = GetSessionSnapshotRequest { session_id: session_id.clone(), recent_limit: 0 };
-        match s.attempt_close_session(req).await {
-            Ok(snapshot) => {
-                if snapshot.snapshot.opened_buffers.is_empty() {
-                    ctx.perform_session_close();
-                    return Ok(ActionResult { success: true, message: None, refreshed: true });
-                } else {
-                    let dirty_ids = snapshot.snapshot.opened_buffers.clone();
-                    let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
-                    let pending = PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
-                    ctx.set_pending_close(pending);
-                    return Ok(ActionResult { success: true, message: None, refreshed: false });
-                }
+        if let Ok(snapshot) = s.attempt_close_session(req).await {
+            if snapshot.snapshot.opened_buffers.is_empty() {
+                ctx.perform_session_close();
+                return Ok(ActionResult { success: true, message: None, refreshed: true });
+            } else {
+                let dirty_ids = snapshot.snapshot.opened_buffers.clone();
+                let summary = format!("{} buffers may have unsaved changes", dirty_ids.len());
+                let pending = PendingClose::SessionClose { dirty_buffers: dirty_ids, summary };
+                ctx.set_pending_close(pending);
+                return Ok(ActionResult { success: true, message: None, refreshed: false });
             }
-            Err(_) => {}
         }
     }
 
@@ -450,23 +447,23 @@ pub async fn confirm_save_all_and_close<C: CloseContext>(
             Ok(_) => {
                 ctx.perform_session_close();
                 ctx.set_close_result_status("Saved and closed session".to_string());
-                return Ok(ActionResult { success: true, message: None, refreshed: true });
+                Ok(ActionResult { success: true, message: None, refreshed: true })
             }
             Err(e) => {
                 ctx.set_pending_close(PendingClose::ResolutionFailure {
                     message: format!("Save failed: {}", e),
                 });
-                return Ok(ActionResult {
+                Ok(ActionResult {
                     success: false,
                     message: Some("save failed".to_string()),
                     refreshed: false,
-                });
+                })
             }
         }
     } else {
         ctx.perform_session_close();
         ctx.set_close_result_status("Closed session (no service)".to_string());
-        return Ok(ActionResult { success: true, message: None, refreshed: true });
+        Ok(ActionResult { success: true, message: None, refreshed: true })
     }
 }
 
@@ -481,24 +478,24 @@ pub async fn confirm_discard_all_and_close<C: CloseContext>(
             Ok(_) => {
                 ctx.perform_session_close();
                 ctx.set_close_result_status("Discarded and closed session".to_string());
-                return Ok(ActionResult { success: true, message: None, refreshed: true });
+                Ok(ActionResult { success: true, message: None, refreshed: true })
             }
             Err(e) => {
                 ctx.set_pending_close(PendingClose::ResolutionFailure {
                     message: format!("Discard failed: {}", e),
                 });
-                return Ok(ActionResult {
+                Ok(ActionResult {
                     success: false,
                     message: Some("discard failed".to_string()),
                     refreshed: false,
-                });
+                })
             }
         }
     } else {
         ctx.clear_pending_close();
         ctx.perform_session_close();
         ctx.set_status_message("Discarded and closed session (no service)".to_string());
-        return Ok(ActionResult { success: true, message: None, refreshed: true });
+        Ok(ActionResult { success: true, message: None, refreshed: true })
     }
 }
 
@@ -674,7 +671,7 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
         "Set active buffer" => {
             if let Some(s) = service {
                 let obs = ctx.latest_opened_buffers_summary();
-                if let Some(item) = obs.items.get(0) {
+                if let Some(item) = obs.items.first() {
                     let buf = item.buffer_id.clone();
                     let sa = set_active_buffer_and_get_shell_context(
                         ctx,

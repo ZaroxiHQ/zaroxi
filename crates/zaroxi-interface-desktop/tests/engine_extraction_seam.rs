@@ -137,7 +137,7 @@ fn generic_viewer_absent_document_produces_empty_scene() {
 fn generic_syntax_spans_for_plain_viewer() {
     use zaroxi_core_engine_scene::{SpanKind, SyntaxSpan, TextSpan};
 
-    let spans = vec![
+    let spans = [
         SyntaxSpan::new(
             0,
             vec![TextSpan::new(0, 5, SpanKind::Emphasis), TextSpan::new(7, 13, SpanKind::Plain)],

@@ -22,11 +22,13 @@ pub struct BreadcrumbState {
     pub segments: Vec<String>,
 }
 
-impl BreadcrumbState {
-    pub fn to_string(&self) -> String {
-        if self.segments.is_empty() { String::new() } else { self.segments.join(" > ") }
+impl std::fmt::Display for BreadcrumbState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.segments.is_empty() { Ok(()) } else { write!(f, "{}", self.segments.join(" > ")) }
     }
+}
 
+impl BreadcrumbState {
     /// Sample breadcrumb helper used by the desktop until real breadcrumb sources are wired.
     pub fn sample() -> Self {
         BreadcrumbState {

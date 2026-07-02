@@ -39,7 +39,7 @@ pub fn build_primitives_from_contract(
     let char_w = metrics.char_width;
     let content_inset = metrics.content_inset;
 
-    let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+    let gutter_x = content_x.saturating_sub(gutter_width);
     let top_line_val = contract.top_line;
 
     // Emit gutter/text primitives per visible row

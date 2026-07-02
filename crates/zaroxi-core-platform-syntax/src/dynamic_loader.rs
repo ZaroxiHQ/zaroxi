@@ -210,13 +210,8 @@ mod enabled {
                     }
 
                     // If we get here, all symbols failed
-                    if debug {
-                        if let Some(e) = last_error {
-                            eprintln!(
-                                "ZAROXI_HL_QUERY: all symbols failed for {}: {}",
-                                language_id, e
-                            );
-                        }
+                    if debug && let Some(e) = last_error {
+                        eprintln!("ZAROXI_HL_QUERY: all symbols failed for {}: {}", language_id, e);
                     }
                     None
                 }

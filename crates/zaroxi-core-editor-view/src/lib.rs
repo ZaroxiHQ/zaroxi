@@ -23,7 +23,7 @@ mod tests {
         let ev = EditorView::new(viewport, gutter);
         let editor_rect = Rect::new(10.0, 20.0, 780.0, 200.0);
         let layout = ev.layout(editor_rect, 0.0, 500);
-        assert!(layout.line_positions.len() > 0);
+        assert!(!layout.line_positions.is_empty());
         assert!(layout.content_rect.width <= editor_rect.width);
     }
 }

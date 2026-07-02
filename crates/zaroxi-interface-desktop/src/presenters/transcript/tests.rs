@@ -60,7 +60,7 @@ fn selection_projection_multi_line() {
     };
     let set = build_editor_primitives_from_lines(80, 20, &lines, Some(&layout));
     // Expect at least one selection rect (should cover two rows intersecting)
-    assert!(set.selections.len() >= 1, "expected selection rect(s) for intersecting visible rows");
+    assert!(!set.selections.is_empty(), "expected selection rect(s) for intersecting visible rows");
     // verify selection rects are inside content x area (inset by +6)
     for s in &set.selections {
         assert!(

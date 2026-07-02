@@ -14,6 +14,12 @@ pub struct EditorState {
     pub active_document: Option<Id>,
 }
 
+impl Default for EditorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EditorState {
     pub fn new() -> Self {
         Self { open_documents: Vec::new(), active_document: None }

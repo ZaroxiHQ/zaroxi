@@ -250,7 +250,7 @@ impl aw_ports::WorkspaceService for FakeSvc {
         Result<aw_ports::GetRecentEventsResponse, aw_ports::UseCaseError>,
     > {
         let buf = self.buf.clone();
-        let wid = self.wid.clone();
+        let wid = self.wid;
         Box::pin(async move {
             let ev = aw_ports::WorkspaceEvent {
                 id: Uuid::new_v4(),
@@ -320,13 +320,12 @@ async fn ai_projection_summary_present_and_parsed() {
     let sid = SessionId(Id::new());
     let wid = Id::new();
 
-    let fake_service =
-        std::sync::Arc::new(FakeSvc::new(aw_ports::BufferId::from("buf:fake"), wid.clone()))
-            as std::sync::Arc<dyn aw_ports::WorkspaceService>;
+    let fake_service = std::sync::Arc::new(FakeSvc::new(aw_ports::BufferId::from("buf:fake"), wid))
+        as std::sync::Arc<dyn aw_ports::WorkspaceService>;
 
     let mut comp = DesktopComposition::new();
     // Use refresh_with_service so the composition consults the fake service and recent events.
-    comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(fake_service))
+    comp.refresh_with_service(arc, sid.clone(), Some(wid), Some(fake_service))
         .await
         .expect("refresh ok");
 
@@ -348,7 +347,7 @@ async fn ai_projection_summary_absent_when_no_events() {
 
     let mut comp = DesktopComposition::new();
     // Refresh without a service -> no AI projection populated.
-    comp.refresh(arc, sid.clone(), Some(wid.clone())).await.expect("refresh ok");
+    comp.refresh(arc, sid.clone(), Some(wid)).await.expect("refresh ok");
 
     let summary_opt = comp.latest_ai_projection_summary();
     assert!(summary_opt.is_none());

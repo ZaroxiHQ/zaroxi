@@ -32,6 +32,12 @@ pub struct ShellRenderTranscript {
     pub diagnostics_enabled: bool,
 }
 
+impl std::fmt::Display for ShellRenderTranscript {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.render_transcript_text())
+    }
+}
+
 impl ShellRenderTranscript {
     /// Construct a transcript from the stable presenter view + paint plan.
     /// The produced plan_lines mirror the exact order of GpuPaintPlan.ops
@@ -132,10 +138,10 @@ impl ShellRenderTranscript {
 
             // Base positions derived from the shell view content rect.
             // Use conservative casting to u32 for transcript readability.
-            let content_x = view.content.x as u32;
-            let base_y = view.content.y as u32;
+            let content_x = view.content.x;
+            let base_y = view.content.y;
             // Gutter x is placed to the left of the content rect (reserve gutter width).
-            let gutter_x = if content_x > gutter_width { content_x - gutter_width } else { 0 };
+            let gutter_x = content_x.saturating_sub(gutter_width);
 
             // Determine the absolute top-most visible document line (1-based)
             // so that gutter labels and caret/selection math can be expressed in
@@ -163,8 +169,8 @@ impl ShellRenderTranscript {
                 let char_w = DEFAULT_CHAR_WIDTH;
                 let lh = DEFAULT_LINE_HEIGHT;
 
-                let content_x = view.content.x as u32;
-                let base_y = view.content.y as u32;
+                let content_x = view.content.x;
+                let base_y = view.content.y;
                 let content_text_x = content_x.saturating_add(6);
 
                 // Caret: single vertical thin rect at (col,char_w).
@@ -249,7 +255,7 @@ impl ShellRenderTranscript {
             // prefer explicit editor_lines if provided; otherwise fall back to a
             // single-line content_preview (when present) or an empty vec.
             let text_lines: Vec<String> = editor_lines.map(|s| s.to_vec()).unwrap_or_else(|| {
-                view.content_preview.as_ref().map(|p| vec![p.clone()]).unwrap_or_else(|| vec![])
+                view.content_preview.as_ref().map(|p| vec![p.clone()]).unwrap_or_default()
             });
 
             let top_line = editor_layout.and_then(|l| l.top_line).unwrap_or(1);
@@ -319,8 +325,9 @@ impl ShellRenderTranscript {
 
     /// Produce a compact deterministic multi-line textual snapshot suitable for
     /// test assertions or logging by the native binary. The format is stable
-    /// and intentionally small.
-    pub fn to_string(&self) -> String {
+    /// and intentionally small. Exposed through the [`std::fmt::Display`] impl,
+    /// so callers keep using `.to_string()`.
+    fn render_transcript_text(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("viewport: {}x{}", self.width, self.height));
         lines.push("regions:".to_string());
@@ -399,7 +406,7 @@ impl ShellRenderTranscript {
             // Print the provided preview string (may be empty).
             lines.push(format!("content_preview: {}", preview));
         } else {
-            lines.push(format!("content_preview: <none>"));
+            lines.push("content_preview: <none>".to_string());
         }
 
         // Additive, deterministic content activity semantic for observability.
@@ -431,7 +438,7 @@ impl ShellRenderTranscript {
             .map(|t| t.display.as_str())
             .unwrap_or("<none>");
         if tab_count == 0 {
-            lines.push(format!("tabs_compact: <none>"));
+            lines.push("tabs_compact: <none>".to_string());
         } else if tab_count <= 3 {
             let names: Vec<String> = self.tabs.tabs.iter().map(|t| t.display.clone()).collect();
             let joined = names.join("|");
@@ -548,9 +555,9 @@ impl ShellRenderTranscript {
 
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
 
@@ -576,9 +583,9 @@ impl ShellRenderTranscript {
 
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
 
@@ -596,11 +603,11 @@ impl ShellRenderTranscript {
                 let mut h: u32 = 0;
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("h=") {
-                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        h = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
                 set.carets.push(CaretItem { x, y, height: h });
@@ -612,13 +619,13 @@ impl ShellRenderTranscript {
                 let mut h: u32 = 0;
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("w=") {
-                        w = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        w = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("h=") {
-                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        h = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
                 if w > 0 && h > 0 {
@@ -657,9 +664,9 @@ impl ShellRenderTranscript {
 
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
 
@@ -685,9 +692,9 @@ impl ShellRenderTranscript {
 
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
 
@@ -705,11 +712,11 @@ impl ShellRenderTranscript {
                 let mut h: u32 = 0;
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("h=") {
-                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        h = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
                 set.carets.push(CaretItem { x, y, height: h });
@@ -721,13 +728,13 @@ impl ShellRenderTranscript {
                 let mut h: u32 = 0;
                 for token in s.split_whitespace() {
                     if let Some(v) = token.strip_prefix("x=") {
-                        x = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        x = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("y=") {
-                        y = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        y = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("w=") {
-                        w = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        w = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     } else if let Some(v) = token.strip_prefix("h=") {
-                        h = v.trim_end_matches(|c| c == ',' || c == ' ').parse().unwrap_or(0);
+                        h = v.trim_end_matches([',', ' ']).parse().unwrap_or(0);
                     }
                 }
                 if w > 0 && h > 0 {

@@ -14,6 +14,12 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DocumentId(Uuid);
 
+impl Default for DocumentId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DocumentId {
     /// Create a new random document id.
     pub fn new() -> Self {

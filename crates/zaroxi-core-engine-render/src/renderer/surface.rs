@@ -4,12 +4,12 @@ use wgpu::{
 };
 use winit::dpi::PhysicalSize;
 
-/// Surface and frame lifecycle helpers moved out of core.rs.
-/// Move-only refactor: these functions encapsulate surface configuration,
-/// resize/reconfigure logic, current-texture acquisition and submit/present.
-///
-/// They preserve behavior (same choices for formats/alpha_mode/present_mode)
-/// and surface configuration as the original implementation.
+// Surface and frame lifecycle helpers moved out of core.rs.
+// Move-only refactor: these functions encapsulate surface configuration,
+// resize/reconfigure logic, current-texture acquisition and submit/present.
+//
+// They preserve behavior (same choices for formats/alpha_mode/present_mode)
+// and surface configuration as the original implementation.
 
 /// Configure the provided surface for the given adapter/device and window size.
 ///

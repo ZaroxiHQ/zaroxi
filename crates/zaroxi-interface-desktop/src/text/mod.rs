@@ -22,7 +22,7 @@ pub static COSMIC_RENDERER: OnceCell<Arc<cosmic_text_renderer::CosmicTextRendere
 /// inability to construct the renderer).
 pub fn init_cosmic_renderer() -> Result<(), String> {
     COSMIC_RENDERER
-        .get_or_try_init(|| cosmic_text_renderer::CosmicTextRenderer::new())
+        .get_or_try_init(cosmic_text_renderer::CosmicTextRenderer::new)
         .map(|_| ())
         .map_err(|e| format!("failed to initialize COSMIC_RENDERER: {}", e))
 }

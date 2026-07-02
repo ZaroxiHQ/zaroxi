@@ -36,7 +36,7 @@ fn transcript_from_shell_draw_plan_is_deterministic() {
     assert!(!t1.lines.is_empty(), "transcript should contain at least one line");
     let joined = t1.to_string();
     assert!(
-        (joined.contains("Content") && joined.contains("Status")) || joined.len() > 0,
+        (joined.contains("Content") && joined.contains("Status")) || !joined.is_empty(),
         "transcript should contain content describing sections"
     );
 }

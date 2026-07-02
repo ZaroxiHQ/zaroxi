@@ -112,9 +112,9 @@ pub async fn refresh_with_service(
                         for vl in resp.window.lines.iter() {
                             lines_vec.push(vl.text.clone());
                             if vl.is_cursor_line {
-                                cursor_line = Some(vl.line_number as usize);
+                                cursor_line = Some(vl.line_number);
                                 if let Some(col) = vl.cursor_column {
-                                    cursor_column = Some(col as usize);
+                                    cursor_column = Some(col);
                                 }
                             }
                             if vl.selection_intersects {
@@ -122,8 +122,8 @@ pub async fn refresh_with_service(
                             }
                         }
                         Some(crate::desktop::projections::VisibleWindowBasic {
-                            top_line: resp.window.top_line as usize,
-                            total_lines: resp.window.total_lines as usize,
+                            top_line: resp.window.top_line,
+                            total_lines: resp.window.total_lines,
                             lines: lines_vec,
                             cursor_line,
                             cursor_column,
@@ -140,28 +140,26 @@ pub async fn refresh_with_service(
     // Sync editor viewport line count to the workspace's ViewportState
     // so centering and scroll calculations use the correct visible height.
     // Only updates window_height when it changes (does not reset top_line).
-    if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref()) {
-        if let Some(window_height) =
+    if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref())
+        && let Some(window_height) =
             comp.metadata.as_ref().and_then(|m| m.editor_viewport_line_count)
-        {
-            if window_height > 0 {
-                let prev = comp.metadata.as_ref().and_then(|m| m.last_synced_window_height);
-                if prev != Some(window_height) {
-                    let _ = svc
-                        .set_viewport_state(crate::ports::SetViewportRequest {
-                            session_id: session_id.clone(),
-                            buffer_id: bid.clone(),
-                            viewport: crate::ports::ViewportState {
-                                top_line: 1,
-                                window_height,
-                                center_cursor: prev.is_none(),
-                            },
-                        })
-                        .await;
-                    if let Some(ref mut meta) = comp.metadata {
-                        meta.last_synced_window_height = Some(window_height);
-                    }
-                }
+        && window_height > 0
+    {
+        let prev = comp.metadata.as_ref().and_then(|m| m.last_synced_window_height);
+        if prev != Some(window_height) {
+            let _ = svc
+                .set_viewport_state(crate::ports::SetViewportRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: bid.clone(),
+                    viewport: crate::ports::ViewportState {
+                        top_line: 1,
+                        window_height,
+                        center_cursor: prev.is_none(),
+                    },
+                })
+                .await;
+            if let Some(ref mut meta) = comp.metadata {
+                meta.last_synced_window_height = Some(window_height);
             }
         }
     }
@@ -171,16 +169,16 @@ pub async fn refresh_with_service(
     {
         let delta = comp.pending_scroll_lines;
         comp.pending_scroll_lines = 0;
-        if delta != 0 {
-            if let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref()) {
-                let _ = svc
-                    .scroll_viewport(crate::ports::ScrollViewportRequest {
-                        session_id: session_id.clone(),
-                        buffer_id: bid.clone(),
-                        delta_lines: delta,
-                    })
-                    .await;
-            }
+        if delta != 0
+            && let (Some(svc), Some(bid)) = (&service, active_buf_opt.as_ref())
+        {
+            let _ = svc
+                .scroll_viewport(crate::ports::ScrollViewportRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: bid.clone(),
+                    delta_lines: delta,
+                })
+                .await;
         }
     }
 
@@ -232,15 +230,15 @@ pub async fn refresh_with_service(
                 // returned buffer_ids, include it in the projection and mark it active.
                 // This covers lightweight service implementations that may set active
                 // without also adding the buffer to their opened list (test doubles).
-                if let Some(active_bid) = list_res.active_buffer.clone() {
-                    if !list_res.buffer_ids.iter().any(|b| b == &active_bid) {
-                        let display = active_bid.path().map(|p| p.to_string_lossy().to_string());
-                        opened_list.push(super::OpenedBufferItem {
-                            buffer_id: active_bid.clone(),
-                            display,
-                            active: true,
-                        });
-                    }
+                if let Some(active_bid) = list_res.active_buffer.clone()
+                    && !list_res.buffer_ids.iter().any(|b| b == &active_bid)
+                {
+                    let display = active_bid.path().map(|p| p.to_string_lossy().to_string());
+                    opened_list.push(super::OpenedBufferItem {
+                        buffer_id: active_bid.clone(),
+                        display,
+                        active: true,
+                    });
                 }
             }
             Err(_) => {
@@ -455,13 +453,12 @@ pub async fn refresh_with_service(
                     limit: 1,
                 })
                 .await
+                && let Some(rec) = cmd_res.commands.last()
             {
-                if let Some(rec) = cmd_res.commands.last() {
-                    let kind_name =
-                        crate::desktop::composition::state::command_kind_short_name(&rec.kind);
-                    let suffix = if rec.success { " ✓" } else { " ✗" };
-                    last_command_line = Some(format!("{}{}", kind_name, suffix));
-                }
+                let kind_name =
+                    crate::desktop::composition::state::command_kind_short_name(&rec.kind);
+                let suffix = if rec.success { " ✓" } else { " ✗" };
+                last_command_line = Some(format!("{}{}", kind_name, suffix));
             }
         }
     }
@@ -542,7 +539,7 @@ pub async fn refresh_with_service(
     // Compute metadata and status snapshots derived from the refresh work above.
     let metadata = super::DesktopMetadata {
         session_id: Some(session_id),
-        workspace_id: comp.workspace_id.clone(),
+        workspace_id: comp.workspace_id,
         // Prefer service-provided opened-buffer active marker when present; fall back to presenter's active buffer.
         active_buffer: authoritative_active.clone(),
         opened_buffer_count: opened_count,
@@ -714,7 +711,7 @@ pub async fn request_ai_edit_active(
                 if comp.metadata.is_none() {
                     comp.metadata = Some(super::DesktopMetadata {
                         session_id: Some(session_id.clone()),
-                        workspace_id: comp.workspace_id.clone(),
+                        workspace_id: comp.workspace_id,
                         active_buffer: Some(target_buffer.clone()),
                         opened_buffer_count: 0,
                         opened_buffers: Vec::new(),
@@ -766,7 +763,7 @@ pub async fn request_ai_edit_active(
                                             if comp.metadata.is_none() {
                                                 comp.metadata = Some(super::DesktopMetadata {
                                                     session_id: Some(session_id.clone()),
-                                                    workspace_id: comp.workspace_id.clone(),
+                                                    workspace_id: comp.workspace_id,
                                                     active_buffer: Some(target_buffer.clone()),
                                                     opened_buffer_count: 0,
                                                     opened_buffers: Vec::new(),
@@ -839,7 +836,7 @@ pub async fn request_ai_edit_active(
         if comp.metadata.is_none() {
             comp.metadata = Some(super::DesktopMetadata {
                 session_id: Some(session_id.clone()),
-                workspace_id: comp.workspace_id.clone(),
+                workspace_id: comp.workspace_id,
                 active_buffer: Some(target_buffer.clone()),
                 opened_buffer_count: 0,
                 opened_buffers: Vec::new(),
@@ -928,11 +925,11 @@ pub async fn apply_ai_edit_active(
         Ok(uresp) => {
             if uresp.ok {
                 applied = true;
-                if let Some(md_mut) = comp.metadata.as_mut() {
-                    if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                        ai_mut.state = Some(super::AiState::Applied);
-                        ai_mut.result = Some("AI edit applied (via update_buffer)".to_string());
-                    }
+                if let Some(md_mut) = comp.metadata.as_mut()
+                    && let Some(ai_mut) = md_mut.ai_projection.as_mut()
+                {
+                    ai_mut.state = Some(super::AiState::Applied);
+                    ai_mut.result = Some("AI edit applied (via update_buffer)".to_string());
                 }
                 comp.set_status_message("AI edit applied (via update_buffer)".to_string());
             } else {
@@ -950,11 +947,11 @@ pub async fn apply_ai_edit_active(
             Ok(resp) => {
                 if resp.ok {
                     applied = true;
-                    if let Some(md_mut) = comp.metadata.as_mut() {
-                        if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                            ai_mut.state = Some(super::AiState::Applied);
-                            ai_mut.result = Some("AI edit applied".to_string());
-                        }
+                    if let Some(md_mut) = comp.metadata.as_mut()
+                        && let Some(ai_mut) = md_mut.ai_projection.as_mut()
+                    {
+                        ai_mut.state = Some(super::AiState::Applied);
+                        ai_mut.result = Some("AI edit applied".to_string());
                     }
                     comp.set_status_message("AI edit applied".to_string());
                 } else {
@@ -974,11 +971,11 @@ pub async fn apply_ai_edit_active(
     } else {
         // Remote apply failed; perform an explicit local fallback so UI can proceed, but label it clearly.
         // Also record the last remote error in the status so tools/harness can detect it.
-        if let Some(md_mut) = comp.metadata.as_mut() {
-            if let Some(ai_mut) = md_mut.ai_projection.as_mut() {
-                ai_mut.state = Some(super::AiState::Applied);
-                ai_mut.result = Some("AI edit applied (local fallback)".to_string());
-            }
+        if let Some(md_mut) = comp.metadata.as_mut()
+            && let Some(ai_mut) = md_mut.ai_projection.as_mut()
+        {
+            ai_mut.state = Some(super::AiState::Applied);
+            ai_mut.result = Some("AI edit applied (local fallback)".to_string());
         }
         let status_text = if let Some(err) = last_err {
             format!("AI edit applied (local fallback) — remote error: {}", err)
@@ -1005,18 +1002,17 @@ pub fn cancel_ai_edit_active(
     service: Option<std::sync::Arc<dyn crate::ports::WorkspaceService>>,
     session_id: Option<crate::ports::SessionId>,
 ) {
-    if let Some(svc) = service {
-        if let (Some(md), Some(sid)) = (comp.metadata.as_ref(), session_id) {
-            if let Some(ai) = md.ai_projection.as_ref() {
-                if let Some(buf) = ai.target_buffer.clone() {
-                    // Fire-and-forget best-effort cancellation (composition stays presentation-only).
-                    let _ = svc.cancel_ai_edit(crate::ports::CancelAiEditRequest {
-                        session_id: sid,
-                        buffer_id: buf,
-                    });
-                }
-            }
-        }
+    if let Some(svc) = service
+        && let (Some(md), Some(sid)) = (comp.metadata.as_ref(), session_id)
+        && let Some(ai) = md.ai_projection.as_ref()
+        && let Some(buf) = ai.target_buffer.clone()
+    {
+        // Fire-and-forget best-effort cancellation (composition stays
+        // presentation-only: no runtime handle here to await/spawn, so the
+        // returned future is intentionally dropped).
+        #[allow(clippy::let_underscore_future)]
+        let _ = svc
+            .cancel_ai_edit(crate::ports::CancelAiEditRequest { session_id: sid, buffer_id: buf });
     }
 
     if let Some(md) = comp.metadata.as_mut() {
@@ -1044,26 +1040,23 @@ pub async fn goto_first_diagnostic_active(
         .and_then(|ds| ds.iter().find(|d| d.line.is_some()))
         .and_then(|d| d.line.map(|ln| (ln, d.column.unwrap_or(0))));
 
-    if let Some((line, col)) = loc {
-        if let Some(svc) = service {
-            let active_req =
-                crate::ports::GetActiveBufferRequest { session_id: session_id.clone() };
-            if let Ok(resp) = svc.get_active_buffer(active_req).await {
-                let bid = resp.buffer_id;
-                let _ = svc
-                    .set_editor_cursor(crate::ports::SetEditorCursorRequest {
-                        session_id: session_id.clone(),
-                        buffer_id: bid,
-                        cursor: crate::ports::EditorCursor { line, column: col },
-                    })
-                    .await
-                    .map_err(|e| e.to_string())?;
-                comp.set_pending_refresh_reason(super::RefreshReason::CursorMoved);
-                let _ = comp
-                    .refresh_with_service(view, session_id, comp.workspace_id.clone(), None)
-                    .await;
-                return Ok(());
-            }
+    if let Some((line, col)) = loc
+        && let Some(svc) = service
+    {
+        let active_req = crate::ports::GetActiveBufferRequest { session_id: session_id.clone() };
+        if let Ok(resp) = svc.get_active_buffer(active_req).await {
+            let bid = resp.buffer_id;
+            let _ = svc
+                .set_editor_cursor(crate::ports::SetEditorCursorRequest {
+                    session_id: session_id.clone(),
+                    buffer_id: bid,
+                    cursor: crate::ports::EditorCursor { line, column: col },
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+            comp.set_pending_refresh_reason(super::RefreshReason::CursorMoved);
+            let _ = comp.refresh_with_service(view, session_id, comp.workspace_id, None).await;
+            return Ok(());
         }
     }
     Err("no diagnostic with line info found".to_string())

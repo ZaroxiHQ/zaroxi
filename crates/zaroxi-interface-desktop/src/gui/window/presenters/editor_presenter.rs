@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use zaroxi_core_editor_rope::Rope;
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_core_engine_ui::chrome::TabEntry;
@@ -13,11 +11,11 @@ const OVERSCAN_LINES: usize = 20;
 
 fn apply_wrap(
     raw_text: &str,
-    raw_spans: Option<&Vec<(String, [f32; 4])>>,
+    raw_spans: Option<&syntax_color::ColoredSpans>,
     chars_per_row: usize,
     first_logical_line: usize,
     scroll_top: usize,
-) -> (String, Option<Vec<(String, [f32; 4])>>, Vec<usize>, usize, usize) {
+) -> (String, Option<syntax_color::ColoredSpans>, Vec<usize>, usize, usize) {
     if chars_per_row == 0 || raw_text.is_empty() {
         // Count via split('\n') (not `str::lines()`) so a trailing empty line is
         // preserved as its own logical line.
@@ -329,7 +327,7 @@ pub fn shape_editor_content_incremental(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
     spans: &[HighlightSpan],
-    line_syntax_cache: &mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>,
+    line_syntax_cache: &mut syntax_color::LineSyntaxCache,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
     visible_line_range: Option<(usize, usize)>,
@@ -352,12 +350,16 @@ pub fn shape_editor_content_incremental(
     )
 }
 
+// Editor shaping pipeline inputs (content, spans, caches, viewport, rope). This
+// is the internal shared impl behind the two public wrappers; bundling would
+// duplicate the same fields into a throwaway struct.
+#[allow(clippy::too_many_arguments)]
 fn shape_editor_content_impl(
     work_content: &Option<ShellWorkContent>,
     sem: &SemanticColors,
     spans: &[HighlightSpan],
     incremental: bool,
-    mut line_syntax_cache: Option<&mut HashMap<(usize, u64), Vec<(String, [f32; 4])>>>,
+    mut line_syntax_cache: Option<&mut syntax_color::LineSyntaxCache>,
     per_line_hashes: &[u64],
     cached_line_hashes: &[u64],
     visible_line_range: Option<(usize, usize)>,

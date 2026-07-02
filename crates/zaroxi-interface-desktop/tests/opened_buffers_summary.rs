@@ -431,9 +431,7 @@ async fn opened_buffers_summary_after_one_buffer() {
     // Refresh with service (populates opened_buffers)
     let svc = std::sync::Arc::new(FakeSvc)
         as std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService>;
-    comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(svc))
-        .await
-        .expect("refresh ok");
+    comp.refresh_with_service(arc, sid.clone(), Some(wid), Some(svc)).await.expect("refresh ok");
 
     let sum = comp.latest_opened_buffers_summary();
     assert_eq!(sum.count, 1);
@@ -778,9 +776,7 @@ async fn opened_buffers_summary_multiple_buffers() {
 
     let svc = std::sync::Arc::new(FakeSvc2)
         as std::sync::Arc<dyn zaroxi_application_workspace::ports::WorkspaceService>;
-    comp.refresh_with_service(arc, sid.clone(), Some(wid.clone()), Some(svc))
-        .await
-        .expect("refresh ok");
+    comp.refresh_with_service(arc, sid.clone(), Some(wid), Some(svc)).await.expect("refresh ok");
 
     let sum = comp.latest_opened_buffers_summary();
     assert_eq!(sum.count, 2);

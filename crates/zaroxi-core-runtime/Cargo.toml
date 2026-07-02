@@ -11,20 +11,3 @@ zaroxi-kernel-core = { path = "../zaroxi-kernel-core" }
 # Workspace-owned deps (use workspace pins when available)
 anyhow = { workspace = true }
 winit = { workspace = true }
-
-# Crate-local utility deps
-log = "0.4"
-env_logger = "0.10"
-pollster = "0.3"
-
-# Map legacy crate import names used in source to the actual workspace packages (path deps).
-# This allows code to `use zaroxi_engine_input::...` while the real package is
-# `zaroxi-core-engine-input` in the workspace.
-zaroxi_engine_input = { package = "zaroxi-core-engine-input", path = "../zaroxi-core-engine-input" }
-zaroxi_engine_render = { package = "zaroxi-core-engine-render", path = "../zaroxi-core-engine-render" }
- 
-
-[features]
-# Feature to enable the optional runtime <> renderer integration surface.
-# Keep empty here; consumers may opt-in to enable the heavier renderer path.
-render_integration = []

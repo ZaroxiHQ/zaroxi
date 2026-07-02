@@ -6,7 +6,6 @@ use zaroxi_application_workspace::ports::{
     WorkspaceService,
 };
 use zaroxi_application_workspace::usecases::WorkspaceOrchestrator;
-use zaroxi_infrastructure_ai_mock;
 
 #[tokio::test]
 async fn request_and_apply_ai_edit_flow() {
@@ -58,7 +57,7 @@ async fn request_and_apply_ai_edit_flow() {
 
     // We expect a proposal to be returned.
     assert!(resp.proposal.summary.as_deref().map(|s| s.len()).unwrap_or(0) > 0);
-    assert!(resp.proposal.proposal_text.len() > 0);
+    assert!(!resp.proposal.proposal_text.is_empty());
 
     // Apply the proposal (use the returned proposal_text as the authoritative payload).
     let apply_req = ApplyAiEditRequest {

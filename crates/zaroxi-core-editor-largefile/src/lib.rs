@@ -80,7 +80,7 @@ impl StreamedDocument {
                     offsets.push(next_abs as u32);
                 }
                 line_count += 1;
-                if line_count % 200_000 == 0 {
+                if line_count.is_multiple_of(200_000) {
                     progress(line_count);
                 }
             }

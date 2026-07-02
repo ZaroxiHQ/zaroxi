@@ -28,8 +28,8 @@ async fn ai_service_request_creates_proposal_and_stores_it() {
     let proposal = svc.request_ai_edit(req, client).await.expect("request ok");
 
     // Basic assertions about the returned proposal
-    assert!(proposal.id.len() > 0);
+    assert!(!proposal.id.is_empty());
     assert_eq!(proposal.buffer_id, "buf:main.rs");
-    assert!(proposal.summary.len() > 0);
+    assert!(!proposal.summary.is_empty());
     assert!(proposal.proposal_text.contains("mocked response for"));
 }

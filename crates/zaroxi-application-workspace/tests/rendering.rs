@@ -74,8 +74,8 @@ impl buffer_ports::BufferStore for FakeStore {
         let inner = self.inner.clone();
         Box::pin(async move {
             let mut m = inner.lock().unwrap();
-            if m.contains_key(&key) {
-                m.insert(key, content);
+            if let std::collections::hash_map::Entry::Occupied(mut e) = m.entry(key) {
+                e.insert(content);
                 Ok(())
             } else {
                 Err(buffer_ports::BufferError("buffer not found".to_string()))
@@ -99,13 +99,13 @@ impl buffer_ports::BufferStore for FakeStore {
             };
             match txn {
                 buffer_ports::TextEdit::Insert { index, text } => {
-                    let bpos = char_to_byte(&s, index);
+                    let bpos = char_to_byte(s, index);
                     s.insert_str(bpos, &text);
                     Ok(())
                 }
                 buffer_ports::TextEdit::Delete { start, end } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, "");
                         Ok(())
@@ -114,8 +114,8 @@ impl buffer_ports::BufferStore for FakeStore {
                     }
                 }
                 buffer_ports::TextEdit::Replace { start, end, text } => {
-                    let bstart = char_to_byte(&s, start);
-                    let bend = char_to_byte(&s, end);
+                    let bstart = char_to_byte(s, start);
+                    let bend = char_to_byte(s, end);
                     if bstart <= bend && bend <= s.len() {
                         s.replace_range(bstart..bend, &text);
                         Ok(())
@@ -158,7 +158,7 @@ async fn render_spans_cursor_and_selection() {
     let open_res = orchestrator.open_buffer(open).await.expect("open ok");
 
     // Ensure predictable content for projection: "abcdefghij"
-    let _ = store.set_text(&open_res.buffer_id, "abcdefghij".to_string()).await.expect("set ok");
+    store.set_text(&open_res.buffer_id, "abcdefghij".to_string()).await.expect("set ok");
 
     // Set cursor at column 3 and a selection covering columns 2..6
     let cursor = EditorCursor { line: 0, column: 3 };

@@ -242,6 +242,27 @@ pub fn format_panel_header_spans(
     spans
 }
 
+fn wrap_text(text: &str, max_chars: usize) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / max_chars);
+    for line in text.lines() {
+        if out.is_empty() {
+            // first line: no leading newline
+        } else {
+            out.push('\n');
+        }
+        let mut remaining = line;
+        while remaining.len() > max_chars {
+            let split =
+                remaining.char_indices().take(max_chars).last().map(|(i, _)| i + 1).unwrap_or(0);
+            out.push_str(&remaining[..split]);
+            out.push('\n');
+            remaining = &remaining[split..];
+        }
+        out.push_str(remaining);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,25 +345,4 @@ mod tests {
         assert!(joined.contains("Active"));
         assert!(joined.contains("Edit applied."));
     }
-}
-
-fn wrap_text(text: &str, max_chars: usize) -> String {
-    let mut out = String::with_capacity(text.len() + text.len() / max_chars);
-    for line in text.lines() {
-        if out.is_empty() {
-            // first line: no leading newline
-        } else {
-            out.push('\n');
-        }
-        let mut remaining = line;
-        while remaining.len() > max_chars {
-            let split =
-                remaining.char_indices().take(max_chars).last().map(|(i, _)| i + 1).unwrap_or(0);
-            out.push_str(&remaining[..split]);
-            out.push('\n');
-            remaining = &remaining[split..];
-        }
-        out.push_str(remaining);
-    }
-    out
 }

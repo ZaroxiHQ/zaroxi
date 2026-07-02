@@ -13,7 +13,7 @@ pub fn shape_explorer_content(work_content: &Option<ShellWorkContent>) -> Explor
     };
 
     let panel_items = wc.explorer_panel_items.clone();
-    let has_structured_items = panel_items.as_ref().map_or(false, |v| !v.is_empty());
+    let has_structured_items = panel_items.as_ref().is_some_and(|v| !v.is_empty());
 
     let sidebar_items = wc
         .explorer_items

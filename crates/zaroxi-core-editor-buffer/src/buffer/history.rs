@@ -56,6 +56,7 @@ impl Buffer {
 
     /// Record an "undo boundary" before a mutating operation.
     /// - is_typing: whether this operation should be considered typing (single-char inserts).
+    ///
     /// Consecutive typing operations at contiguous positions are merged.
     pub(crate) fn record_undo_before(&mut self, is_typing: bool) {
         let insert_start = (self.cursor_line, self.cursor_col);

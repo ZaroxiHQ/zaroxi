@@ -39,7 +39,7 @@ impl DesktopComposition {
                     .unwrap_or_else(|| "unknown".to_string());
 
                 let is_applied =
-                    proj.state.as_ref().map_or(false, |s| matches!(s, super::AiState::Applied));
+                    proj.state.as_ref().is_some_and(|s| matches!(s, super::AiState::Applied));
 
                 if is_applied && proj.result.is_some() {
                     panel::applied_content_view(proj.result.as_deref().unwrap_or(""), &target)
