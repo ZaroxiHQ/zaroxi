@@ -714,7 +714,10 @@ mod tests {
             ],
             ai_regions: vec![(30, 36)],
             viewport: (0.1, 0.25),
-            diff_hunks: vec![DiffHunk { line: 2, added: true }],
+            diff_hunks: vec![DiffHunk {
+                line: 2,
+                kind: zaroxi_interface_widgets::components::DiffKind::Added,
+            }],
             prediction_cells: vec![PredictionCell { line: 3, probability: 0.9 }],
             status: InstrumentStatus {
                 context: ContextBand {

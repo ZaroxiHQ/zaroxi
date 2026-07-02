@@ -90,7 +90,7 @@ pub fn collect_for_uri(uri: &str) -> DiagnosticsSummary {
     // When the feature is not enabled, report explicit disabled state.
     #[cfg(not(feature = "use_core_lsp"))]
     {
-        return DiagnosticsSummary::Disabled;
+        DiagnosticsSummary::Disabled
     }
 
     // When feature enabled, forward to the core platform adapter and map types.
@@ -234,7 +234,7 @@ pub fn diagnostics_details_for_uri(uri: &str) -> Option<Vec<Diagnostic>> {
     // If feature is disabled and no mock provider, report no provider available.
     #[cfg(not(feature = "use_core_lsp"))]
     {
-        return None;
+        None
     }
 
     // When feature enabled, forward to collect_for_uri mapping.
@@ -334,14 +334,14 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
     // report explicit Disabled provider state so the UI remains honest.
     #[cfg(not(feature = "use_core_lsp"))]
     {
-        return Some(DiagnosticsSnapshot {
+        Some(DiagnosticsSnapshot {
             provider: ProviderState::Disabled,
             active_buffer: u.to_string(),
             errors: 0,
             warnings: 0,
             infos: 0,
             hints: 0,
-        });
+        })
     }
 
     // When feature enabled, forward to the core platform adapter and map types.

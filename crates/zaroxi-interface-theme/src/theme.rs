@@ -325,8 +325,8 @@ impl SemanticColors {
             info: Color::from_hex("#9ECBFF"),    // info/hint
             diff_added: Color::from_hex("#3FB950"), // git added — green
             diff_removed: Color::from_hex("#F85149"), // git deleted — red
-            diff_modified: Color::from_hex("#D29922"), // git modified — amber
-            git_staged: Color::from_hex("#9D7BF0"), // staged — indigo (intentional)
+            diff_modified: Color::from_hex("#6E9BF0"), // git modified — indigo-aligned blue (Zaroxi signature-family, distinct from add/del)
+            git_staged: Color::from_hex("#9D7BF0"),    // staged — indigo (intentional)
 
             // AI signal — teal, AI-only.
             ai_active: Color::from_hex("#3DDBD9"), // live session pulse
@@ -339,7 +339,7 @@ impl SemanticColors {
 
             // Editor specific.
             editor_gutter_background: Color::from_hex("#0A0A0F"), // bg_panel — gutter
-            editor_line_highlight: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.06), // accent_line — 6% tracks position without noise
+            editor_line_highlight: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.11), // accent_line — indigo-tinted active-line anchor (restrained, clearly visible)
             editor_cursor: Color::from_hex("#9D7BF0"), // accent — indigo cursor
             editor_selection: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.22), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.8235, 0.6, 0.1333, 0.22), // git_modified_surface — search match
@@ -472,8 +472,8 @@ impl SemanticColors {
             info: Color::from_hex("#0550AE"),    // info/hint
             diff_added: Color::from_hex("#1A7F37"), // git added — green
             diff_removed: Color::from_hex("#CF222E"), // git deleted — red
-            diff_modified: Color::from_hex("#9A6700"), // git modified — amber
-            git_staged: Color::from_hex("#6E40C9"), // staged — indigo (intentional)
+            diff_modified: Color::from_hex("#3B5BD9"), // git modified — indigo-aligned blue (deeper for light-bg contrast)
+            git_staged: Color::from_hex("#6E40C9"),    // staged — indigo (intentional)
 
             // AI signal — teal, AI-only.
             ai_active: Color::from_hex("#0E8B89"), // live session pulse
@@ -486,8 +486,8 @@ impl SemanticColors {
 
             // Editor specific.
             editor_gutter_background: Color::from_hex("#EEEDF3"), // bg_panel — gutter
-            editor_line_highlight: Color::from_rgba(0.4314, 0.251, 0.7882, 0.05), // accent_line
-            editor_cursor: Color::from_hex("#6E40C9"),            // accent — indigo cursor
+            editor_line_highlight: Color::from_rgba(0.4314, 0.251, 0.7882, 0.09), // accent_line — indigo-tinted active-line anchor (restrained, clearly visible)
+            editor_cursor: Color::from_hex("#6E40C9"), // accent — indigo cursor
             editor_selection: Color::from_rgba(0.4314, 0.251, 0.7882, 0.18), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.6039, 0.4039, 0.0, 0.22), // git_modified_surface — search match
 

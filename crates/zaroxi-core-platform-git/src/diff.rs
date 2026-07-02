@@ -52,7 +52,12 @@ pub struct ChangedLine {
     /// deletion occurred).
     pub line: usize,
     /// `true` for added/modified lines, `false` for a removal marker.
+    /// Retained for back-compat; prefer `kind` for the three-state distinction.
     pub added: bool,
+    /// The change classification, preserved from the owning hunk so the editor
+    /// gutter can render added / modified / removed with distinct cues (the
+    /// `added` bool alone collapses added+modified).
+    pub kind: ChangeKind,
 }
 
 /// Split a document into lines without allocating per line.
@@ -236,11 +241,15 @@ pub fn changed_lines(hunks: &[DiffHunk]) -> Vec<ChangedLine> {
         match h.kind {
             ChangeKind::Added | ChangeKind::Modified => {
                 for line in h.new_start..h.new_start + h.new_len {
-                    out.push(ChangedLine { line, added: true });
+                    out.push(ChangedLine { line, added: true, kind: h.kind });
                 }
             }
             ChangeKind::Removed => {
-                out.push(ChangedLine { line: h.new_start, added: false });
+                out.push(ChangedLine {
+                    line: h.new_start,
+                    added: false,
+                    kind: ChangeKind::Removed,
+                });
             }
         }
     }
@@ -310,6 +319,10 @@ mod tests {
         // Line 1 modified (added marker) and line 3 added.
         assert!(lines.iter().any(|c| c.line == 1 && c.added));
         assert!(lines.iter().any(|c| c.line == 3 && c.added));
+        // The three-state `kind` is preserved for gutter rendering: the in-place
+        // edit is Modified, the appended line is Added.
+        assert!(lines.iter().any(|c| c.line == 1 && c.kind == ChangeKind::Modified));
+        assert!(lines.iter().any(|c| c.line == 3 && c.kind == ChangeKind::Added));
     }
 
     #[test]

@@ -162,13 +162,34 @@ impl ZaroxiWidget for SemanticMinimap {
 
 // ── Component 2: Living Diff Layer ──────────────────────────────────────────
 
+/// Classification of a diff line for the change gutter.
+///
+/// Three visibly distinct states so the gutter reads like a premium editor:
+/// `Added` (green bar), `Modified` (indigo-aligned blue bar), `Removed` (red
+/// tick). `Added` and `Modified` render as full-run bars; `Removed` as a short
+/// boundary tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffKind {
+    Added,
+    Modified,
+    Removed,
+}
+
+impl DiffKind {
+    /// Whether this kind renders as a full-run vertical bar (added/modified) as
+    /// opposed to a short removal tick.
+    pub fn is_bar(self) -> bool {
+        matches!(self, DiffKind::Added | DiffKind::Modified)
+    }
+}
+
 /// One diff line.
 #[derive(Debug, Clone, Copy)]
 pub struct DiffHunk {
     /// 0-based viewport-relative line index.
     pub line: usize,
-    /// Whether the line is added or removed.
-    pub added: bool,
+    /// The change classification driving the gutter cue color + shape.
+    pub kind: DiffKind,
 }
 
 /// Component 2 — inline git-diff indicator drawn in a dedicated change lane.
@@ -209,14 +230,14 @@ pub struct LivingDiffLayer {
 /// `(added, start_line, end_line)`. Git emits one `added` marker per new line, so
 /// a multi-line added/modified block becomes ONE cohesive bar instead of N
 /// separate stripes; a removal (a single `!added` marker) stays a one-line run.
-fn coalesce_diff_runs(hunks: &[DiffHunk]) -> Vec<(bool, usize, usize)> {
-    let mut lines: Vec<(usize, bool)> = hunks.iter().map(|h| (h.line, h.added)).collect();
+fn coalesce_diff_runs(hunks: &[DiffHunk]) -> Vec<(DiffKind, usize, usize)> {
+    let mut lines: Vec<(usize, DiffKind)> = hunks.iter().map(|h| (h.line, h.kind)).collect();
     lines.sort_unstable_by_key(|&(line, _)| line);
-    let mut runs: Vec<(bool, usize, usize)> = Vec::new();
-    for (line, added) in lines {
+    let mut runs: Vec<(DiffKind, usize, usize)> = Vec::new();
+    for (line, kind) in lines {
         match runs.last_mut() {
-            Some(run) if run.0 == added && line == run.2 + 1 => run.2 = line,
-            _ => runs.push((added, line, line)),
+            Some(run) if run.0 == kind && line == run.2 + 1 => run.2 = line,
+            _ => runs.push((kind, line, line)),
         }
     }
     runs
@@ -262,19 +283,29 @@ impl ZaroxiWidget for LivingDiffLayer {
         let active_line = self.active.and_then(|i| self.hunks.get(i)).map(|h| h.line);
         let trace = std::env::var("ZAROXI_DEBUG_DECORATION").as_deref() == Ok("1");
 
-        for (added, start, end) in coalesce_diff_runs(&self.hunks) {
+        for (kind, start, end) in coalesce_diff_runs(&self.hunks) {
             let run_y0 = row_top + start as f64 * self.line_height;
             let run_y1 = row_top + (end + 1) as f64 * self.line_height;
             let is_active = active_line.is_some_and(|l| l >= start && l <= end);
             let w = if is_active { ACTIVE_BAR_W } else { BAR_W };
 
-            let (top, bottom, color, kind) = if added {
-                let top = run_y0 + BAR_V_INSET;
-                let bottom = (run_y1 - BAR_V_INSET).max(top + 1.0);
-                (top, bottom, theme.diff_added, "added")
-            } else {
-                let half = self.line_height * DEL_TICK_FRAC * 0.5;
-                (run_y0 - half, run_y0 + half, theme.diff_removed, "removed")
+            let (top, bottom, color, kind) = match kind {
+                // Added / Modified → a full-run bar; only the color differs so
+                // the gutter reads green (added) vs indigo-blue (modified).
+                DiffKind::Added => {
+                    let top = run_y0 + BAR_V_INSET;
+                    let bottom = (run_y1 - BAR_V_INSET).max(top + 1.0);
+                    (top, bottom, theme.diff_added, "added")
+                }
+                DiffKind::Modified => {
+                    let top = run_y0 + BAR_V_INSET;
+                    let bottom = (run_y1 - BAR_V_INSET).max(top + 1.0);
+                    (top, bottom, theme.diff_modified, "modified")
+                }
+                DiffKind::Removed => {
+                    let half = self.line_height * DEL_TICK_FRAC * 0.5;
+                    (run_y0 - half, run_y0 + half, theme.diff_removed, "removed")
+                }
             };
             let marker = RoundedRect::new(lane_x, top, lane_x + w, bottom, w * 0.5);
             fill(scene, &marker, color);
@@ -294,10 +325,11 @@ impl ZaroxiWidget for LivingDiffLayer {
     }
 
     fn a11y_label(&self) -> Option<String> {
-        let adds = self.hunks.iter().filter(|h| h.added).count();
-        let rems = self.hunks.len() - adds;
+        let adds = self.hunks.iter().filter(|h| h.kind == DiffKind::Added).count();
+        let mods = self.hunks.iter().filter(|h| h.kind == DiffKind::Modified).count();
+        let rems = self.hunks.iter().filter(|h| h.kind == DiffKind::Removed).count();
         Some(format!(
-            "Inline AI diff: {adds} additions, {rems} removals. Tab/Shift-Tab to navigate, Enter accept, Esc reject."
+            "Inline AI diff: {adds} additions, {mods} modifications, {rems} removals. Tab/Shift-Tab to navigate, Enter accept, Esc reject."
         ))
     }
 }
@@ -2423,7 +2455,10 @@ mod tests {
         assert!(minimap.a11y_label().is_some());
 
         let diff = LivingDiffLayer {
-            hunks: vec![DiffHunk { line: 0, added: true }, DiffHunk { line: 1, added: false }],
+            hunks: vec![
+                DiffHunk { line: 0, kind: DiffKind::Added },
+                DiffHunk { line: 1, kind: DiffKind::Removed },
+            ],
             line_height: 18.0,
             active: Some(0),
             phase: 0.25,

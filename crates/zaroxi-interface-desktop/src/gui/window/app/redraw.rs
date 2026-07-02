@@ -36,6 +36,21 @@ use std::time::Instant;
 /// A free function (not a `&self` method) so the call sites can pass disjoint
 /// field borrows without taking a whole-`self` borrow that would clash with the
 /// window.
+/// Map the git crate's line change classification to the widget gutter's
+/// three-state cue so `added` / `modified` / `removed` render with distinct
+/// colors (green / indigo-blue / red) instead of collapsing add+modify.
+fn git_change_kind_to_diff_kind(
+    kind: zaroxi_core_platform_git::diff::ChangeKind,
+) -> zaroxi_interface_widgets::components::DiffKind {
+    use zaroxi_core_platform_git::diff::ChangeKind;
+    use zaroxi_interface_widgets::components::DiffKind;
+    match kind {
+        ChangeKind::Added => DiffKind::Added,
+        ChangeKind::Modified => DiffKind::Modified,
+        ChangeKind::Removed => DiffKind::Removed,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn diff_hunks_to_viewport(
     hunks: &[zaroxi_interface_widgets::components::DiffHunk],
@@ -64,13 +79,16 @@ fn diff_hunks_to_viewport(
     // row, dropping it when off-screen. `view_offset` is the scroll origin in the
     // same units as `abs_visual` (logical lines when unwrapped, visual rows when
     // wrapped) — matching how the text/gutter apply `content_offset_y`.
-    let mut emit = |logical: usize, added: bool, abs_visual: usize, view_offset: usize| {
+    let mut emit = |logical: usize,
+                    kind: zaroxi_interface_widgets::components::DiffKind,
+                    abs_visual: usize,
+                    view_offset: usize| {
         let rel = abs_visual as isize - view_offset as isize;
         let kept = rel >= 0 && (rel as usize) < visible_rows;
         if trace {
             eprintln!(
-                "ZAROXI_DEBUG_DECORATION: layer=diff source={} logical_line={} abs_visual_row={} viewport_row={} wrap={} scroll_top={} wrap_offset={} visible_rows={} active_file={:?} buffer_version={} cockpit_diff_version={} kept={}",
-                if added { "diff_added" } else { "diff_removed" },
+                "ZAROXI_DEBUG_DECORATION: layer=diff source={:?} logical_line={} abs_visual_row={} viewport_row={} wrap={} scroll_top={} wrap_offset={} visible_rows={} active_file={:?} buffer_version={} cockpit_diff_version={} kept={}",
+                kind,
                 logical,
                 abs_visual,
                 rel,
@@ -85,25 +103,25 @@ fn diff_hunks_to_viewport(
             );
         }
         if kept {
-            out.push(zaroxi_interface_widgets::components::DiffHunk { line: rel as usize, added });
+            out.push(zaroxi_interface_widgets::components::DiffHunk { line: rel as usize, kind });
         }
     };
 
     for h in hunks {
         if wrapping {
-            if h.added {
-                // Span every visual row this logical line occupies.
+            if h.kind.is_bar() {
+                // Added/modified bars span every visual row the logical line occupies.
                 for (abs_visual, &ll) in visual_to_logical.iter().enumerate() {
                     if ll == h.line {
-                        emit(h.line, true, abs_visual, wrap_visual_offset);
+                        emit(h.line, h.kind, abs_visual, wrap_visual_offset);
                     }
                 }
             } else if let Some(abs_visual) = visual_to_logical.iter().position(|&ll| ll == h.line) {
-                emit(h.line, false, abs_visual, wrap_visual_offset);
+                emit(h.line, h.kind, abs_visual, wrap_visual_offset);
             }
         } else {
             // Unwrapped: logical line == visual row; scroll is line-aligned.
-            emit(h.line, h.added, h.line, scroll_top);
+            emit(h.line, h.kind, h.line, scroll_top);
         }
     }
     out
@@ -145,7 +163,7 @@ fn refresh_cockpit_diff_hunks(
                 .iter()
                 .map(|c| zaroxi_interface_widgets::components::DiffHunk {
                     line: c.line,
-                    added: c.added,
+                    kind: git_change_kind_to_diff_kind(c.kind),
                 })
                 .collect(),
             None => Vec::new(),
