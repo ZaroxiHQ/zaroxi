@@ -81,6 +81,7 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
     let text_on_accent = to_engine(sem.text_on_accent);
     let divider = to_engine(sem.divider);
     let divider_subtle = to_engine(sem.divider_subtle);
+    let border_strong = to_engine(sem.border_strong);
     let hover_bg = to_engine(sem.hover_background);
     let active_bg = to_engine(sem.active_background);
     let selected_bg = to_engine(sem.selected_background);
@@ -160,6 +161,7 @@ pub fn resolve_style_tokens(sem: &SemanticColors, mods: &AdapterModifiers) -> St
         text_on_accent,
         divider_default: divider,
         divider_subtle,
+        border_strong,
         sidebar_border,
         sidebar_search_divider,
         status_divider,

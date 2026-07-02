@@ -46,6 +46,7 @@ pub fn test_tokens_dark() -> StyleTokens {
     let sidebar_border = divider_default.adjust_brightness(0.85);
     let sidebar_search_divider = divider_subtle.adjust_brightness(0.8);
     let status_divider = divider_default.adjust_brightness(0.9);
+    let border_strong = divider_default.adjust_brightness(1.3);
 
     StyleTokens {
         app_background: app_bg,
@@ -73,6 +74,7 @@ pub fn test_tokens_dark() -> StyleTokens {
         text_on_accent,
         divider_default,
         divider_subtle,
+        border_strong,
         sidebar_border,
         sidebar_search_divider,
         status_divider,
@@ -151,6 +153,7 @@ pub fn test_tokens_light() -> StyleTokens {
     let sidebar_border = divider_default.adjust_brightness(0.85);
     let sidebar_search_divider = divider_subtle.adjust_brightness(0.8);
     let status_divider = divider_default.adjust_brightness(0.9);
+    let border_strong = divider_default.adjust_brightness(1.3);
 
     StyleTokens {
         app_background: app_bg,
@@ -178,6 +181,7 @@ pub fn test_tokens_light() -> StyleTokens {
         text_on_accent,
         divider_default,
         divider_subtle,
+        border_strong,
         sidebar_border,
         sidebar_search_divider,
         status_divider,

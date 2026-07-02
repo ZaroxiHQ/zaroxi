@@ -147,6 +147,7 @@ fn custom_style_tokens_drive_engine_without_zaroxi_theme() {
         text_on_accent: ThemeColor::from_hex("#FFFFFF"),
         divider_default: ThemeColor::from_hex("#444444"),
         divider_subtle: ThemeColor::new(0.27, 0.27, 0.27, 0.3),
+        border_strong: ThemeColor::from_hex("#555555"),
         sidebar_border: ThemeColor::from_hex("#3a3a3a"),
         sidebar_search_divider: ThemeColor::from_hex("#3a3a3a"),
         status_divider: ThemeColor::from_hex("#3d3d3d"),

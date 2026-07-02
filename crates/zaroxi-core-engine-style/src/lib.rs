@@ -129,6 +129,8 @@ pub struct StyleTokens {
     // ── Dividers ──
     pub divider_default: ThemeColor,
     pub divider_subtle: ThemeColor,
+    /// Strong seam — the most defined panel boundaries (editor↔AI, editor↔bottom).
+    pub border_strong: ThemeColor,
     pub sidebar_border: ThemeColor,
     pub sidebar_search_divider: ThemeColor,
     pub status_divider: ThemeColor,

@@ -15,7 +15,7 @@ use crate::gui::region_dispatch::region_role;
 use crate::gui::window::editor_shell::constants::{
     SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_SIDEBAR_SPEC, ScrollbarSpec, compute_scrollbar_geometry,
 };
-use zaroxi_core_engine_render::UiBlock;
+use zaroxi_core_engine_render::{Rect, UiBlock};
 use zaroxi_core_engine_style::{PanelRole, StyleTokens};
 
 use super::ai_pane::{AiPanel, AiPanelData};
@@ -407,6 +407,82 @@ pub fn compose_blocks(
                 }
             }
         };
+    }
+
+    // ── Panel seams — structural 1px separators between major regions ────────
+    // Single-edge only (never boxed). Hierarchy: `divider_default` (subtle) for
+    // region splits; `border_strong` for the editor↔AI and editor↔bottom seams.
+    // Appended last so the seams paint on top of the panel fills.
+    {
+        let region_rect = |role: PanelRole| -> Option<(f32, f32, f32, f32)> {
+            regions.iter().find(|r| region_role(r.id) == role).map(|r| {
+                (r.rect.x as f32, r.rect.y as f32, r.rect.width as f32, r.rect.height as f32)
+            })
+        };
+        let seam_subtle = tokens.divider_default.to_array();
+        let seam_strong = tokens.border_strong.to_array();
+        let seam = |id: &str, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]| UiBlock {
+            id: id.to_string(),
+            rect: Rect { x, y, w, h },
+            header_only: true,
+            header_color: Some(color),
+            ..Default::default()
+        };
+
+        // Explorer ↔ Editor — right edge of the file explorer (subtle).
+        if let Some((x, y, w, h)) =
+            region_rect(PanelRole::SidePanel).filter(|&(_, _, w, h)| w > 1.0 && h > 0.0)
+        {
+            blocks.push(seam("seam.explorer_editor", x + w - 1.0, y, 1.0, h, seam_subtle));
+        }
+
+        // Editor ↔ AI assistant — left edge of the assistant column (strong).
+        // Spans header + content as one clean full-height seam.
+        {
+            let ai: Vec<(f32, f32, f32, f32)> = [
+                region_rect(PanelRole::AuxiliaryPanelHeader),
+                region_rect(PanelRole::AuxiliaryPanelContent),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            if let Some(first) = ai.first().copied() {
+                let top = ai.iter().map(|r| r.1).fold(f32::INFINITY, f32::min);
+                let bottom = ai.iter().map(|r| r.1 + r.3).fold(f32::NEG_INFINITY, f32::max);
+                let h = (bottom - top).max(0.0);
+                if h > 0.0 {
+                    blocks.push(seam("seam.editor_ai", first.0, top, 1.0, h, seam_strong));
+                }
+            }
+        }
+
+        // Editor ↔ Bottom terminal — top edge of the bottom panel (strong).
+        if let Some((x, y, w, _)) =
+            region_rect(PanelRole::BottomPanel).filter(|&(_, _, w, _)| w > 0.0)
+        {
+            blocks.push(seam("seam.editor_bottom", x, y, w, 1.0, seam_strong));
+        }
+
+        // Tabs ↔ Editor body — bottom edge of the tab strip (subtle).
+        if let Some((x, y, w, h)) =
+            region_rect(PanelRole::ContentTabStrip).filter(|&(_, _, w, h)| w > 0.0 && h > 1.0)
+        {
+            blocks.push(seam("seam.tabs_editor", x, y + h - 1.0, w, 1.0, seam_subtle));
+        }
+
+        // Title bar ↔ content — bottom edge of the top chrome (subtle).
+        if let Some((x, y, w, h)) =
+            region_rect(PanelRole::TopBar).filter(|&(_, _, w, h)| w > 0.0 && h > 1.0)
+        {
+            blocks.push(seam("seam.titlebar", x, y + h - 1.0, w, 1.0, seam_subtle));
+        }
+
+        // Status bar ↔ content — top edge of the footer (subtle).
+        if let Some((x, y, w, _)) =
+            region_rect(PanelRole::StatusBar).filter(|&(_, _, w, _)| w > 0.0)
+        {
+            blocks.push(seam("seam.status", x, y, w, 1.0, seam_subtle));
+        }
     }
 
     log::debug!("ZAROXI_PANEL_COMPOSE: built {} blocks from panel modules", blocks.len());
