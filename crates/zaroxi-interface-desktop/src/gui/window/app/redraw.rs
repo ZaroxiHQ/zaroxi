@@ -1465,7 +1465,10 @@ impl GuiApp {
             let block_build_ms = block_t.elapsed().as_secs_f32() * 1000.0;
             let enrich_t = std::time::Instant::now();
 
-            // ── Scrollbar hover/active state bridging ──
+            // ── Scrollbar hover/active bridging (editor, sidebar, bottom) ──
+            // On hover/active the thumb picks up a restrained Zaroxi accent tint —
+            // clearly stronger than the passive faint thumb, consistent across all
+            // three panels (previously only the editor scrollbar reacted).
             if let Some(ref tree) = self.widget_tree {
                 for w in &tree.widgets {
                     if let zaroxi_core_engine_ui::ShellWidget::ScrollBar {
@@ -1473,26 +1476,30 @@ impl GuiApp {
                         state,
                         ..
                     } = w
-                        && *index == lc::SCROLLBAR_ID_EDITOR
                     {
-                        let highlight_color = match *state {
+                        let thumb_id = match *index {
+                            lc::SCROLLBAR_ID_EDITOR => "scrollbar_thumb_editor",
+                            lc::SCROLLBAR_ID_SIDEBAR => "scrollbar_thumb_sidebar",
+                            lc::SCROLLBAR_ID_BOTTOM => "scrollbar_thumb_bottom",
+                            _ => continue,
+                        };
+                        let hover_color = match *state {
                             zaroxi_core_engine_ui::InteractionState::Hover
                             | zaroxi_core_engine_ui::InteractionState::Active => {
-                                let mut c = tokens.editor_scrollbar_thumb.to_array();
-                                c[3] = (c[3] * 2.0).min(1.0);
+                                let mut c = tokens.accent.to_array();
+                                c[3] = 0.55;
                                 Some(c)
                             }
                             _ => None,
                         };
-                        if let Some(color) = highlight_color {
+                        if let Some(color) = hover_color {
                             for block in &mut render_blocks {
-                                if block.id == "scrollbar_thumb_editor" {
+                                if block.id == thumb_id {
                                     block.header_color = Some(color);
                                     break;
                                 }
                             }
                         }
-                        break;
                     }
                 }
             }

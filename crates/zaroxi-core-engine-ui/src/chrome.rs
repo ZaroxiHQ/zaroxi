@@ -160,31 +160,53 @@ pub fn format_ai_panel_spans(
     let body_color = tokens.text_secondary.to_array();
     let faint_color = tokens.text_faint.to_array();
     let accent_color = tokens.accent.to_array();
+    let section_color = tokens.text_muted.to_array();
 
     let mut spans: Vec<(String, [f32; 4])> = Vec::new();
 
+    // ── Header: assistant name + a subtle session-state cue ──
     let t = title.unwrap_or("AI Assistant");
     spans.push((t.to_string(), title_color));
 
-    if let Some(sub) = subtitle {
-        spans.push((" \u{2022} ".to_string(), faint_color));
-        spans.push((sub.to_string(), subtitle_color));
+    let has_session = body.map(|b| !b.trim().is_empty()).unwrap_or(false);
+    match subtitle {
+        Some(sub) => {
+            spans.push(("  \u{2022}  ".to_string(), faint_color));
+            spans.push((sub.to_string(), subtitle_color));
+        }
+        None => {
+            spans.push(("  \u{2022}  ".to_string(), faint_color));
+            spans.push((if has_session { "Active" } else { "Ready" }.to_string(), accent_color));
+        }
     }
 
     spans.push(("\n\n".to_string(), faint_color));
 
-    match body {
-        Some(b) if !b.trim().is_empty() => {
-            let wrapped = wrap_text(b, 40);
-            spans.push((wrapped, body_color));
+    if has_session {
+        // ── Active session: render the conversation/body ──
+        let wrapped = wrap_text(body.unwrap_or(""), 40);
+        spans.push((wrapped, body_color));
+    } else {
+        // ── Idle state: structured product modules, not a bare placeholder ──
+        // Spacing carries the rhythm; section labels give quiet hierarchy.
+        spans.push(("SUGGESTED\n".to_string(), section_color));
+        for action in
+            ["Explain this file", "Refactor selection", "Generate tests", "Review for bugs"]
+        {
+            spans.push(("\u{2022}  ".to_string(), accent_color));
+            spans.push((format!("{action}\n"), body_color));
         }
-        _ => {
-            spans.push(("No active AI session\n".to_string(), faint_color));
-            spans.push((
-                "Open a file and request an AI edit to get started.".to_string(),
-                accent_color,
-            ));
-        }
+
+        spans.push(("\nRECENT\n".to_string(), section_color));
+        spans.push(("No recent sessions yet\n".to_string(), faint_color));
+
+        spans.push(("\nCONTEXT\n".to_string(), section_color));
+        spans.push((
+            "Open a file to give Zaroxi context for\nedits, reviews, and generation.\n".to_string(),
+            faint_color,
+        ));
+
+        spans.push(("\nAsk anything  \u{2022}  / for commands".to_string(), faint_color));
     }
 
     spans
@@ -279,10 +301,28 @@ mod tests {
     }
 
     #[test]
-    fn empty_ai_panel_shows_prompt() {
+    fn empty_ai_panel_shows_structured_idle_state() {
         let spans = format_ai_panel_spans(None, None, None, &test_tokens());
-        assert!(spans.iter().any(|s| s.0.contains("No active AI session")));
-        assert!(spans.iter().any(|s| s.0.contains("request an AI edit")));
+        let joined: String = spans.iter().map(|s| s.0.as_str()).collect();
+        // Premium idle state: section labels, suggested actions, and a composer hint.
+        assert!(joined.contains("Ready"));
+        assert!(joined.contains("SUGGESTED"));
+        assert!(joined.contains("Explain this file"));
+        assert!(joined.contains("RECENT"));
+        assert!(joined.contains("Ask anything"));
+    }
+
+    #[test]
+    fn active_ai_panel_renders_body() {
+        let spans = format_ai_panel_spans(
+            Some("AI Assistant"),
+            None,
+            Some("Edit applied."),
+            &test_tokens(),
+        );
+        let joined: String = spans.iter().map(|s| s.0.as_str()).collect();
+        assert!(joined.contains("Active"));
+        assert!(joined.contains("Edit applied."));
     }
 }
 
