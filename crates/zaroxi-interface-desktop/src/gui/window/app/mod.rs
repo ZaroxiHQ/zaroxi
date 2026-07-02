@@ -326,6 +326,19 @@ pub struct GuiApp {
     /// Buffer version the `latest_spans` correspond to.  Used to detect when a
     /// fresh parse result has arrived and to avoid re-applying the same result.
     pub latest_spans_version: u64,
+    /// Canonical active-file identity the `latest_spans` were computed for.
+    /// Part of strict span ownership: spans may color text only when this
+    /// matches the currently active file (`committed_active_file`). A version
+    /// match alone is not enough — this closes the (rare) window where a
+    /// monotonic version could coincide across a file switch.
+    pub latest_spans_owner: Option<String>,
+    /// Last error-free, full-coverage highlight baseline for the active NORMAL
+    /// file. When a subsequent edit parses to a degraded (error-recovery)
+    /// result, the unchanged suffix of this baseline is remapped across the edit
+    /// so downstream lines keep their highlighting instead of collapsing to
+    /// plain text. Only ever holds a full-buffer result; never used in
+    /// large-file (viewport) mode. Reset on file switch.
+    pub last_good_highlight: Option<background_parse::GoodHighlight>,
     /// Explicit open intent from the most recent activation (explorer
     /// click / tab activation).  Consumed by `commit_open`.  Remains as a
     /// transient wire — editor membership is owned by `editor_group`.
@@ -760,24 +773,30 @@ impl GuiApp {
     /// The rope always starts at line 0 so caret positions remain absolute.
     /// Called before rendering when the scroll position demands more lines than
     /// the rope currently holds. Preserves the caret position across extensions.
-    pub(crate) fn repopulate_large_file_rope(&mut self, min_lines_needed: usize) {
+    ///
+    /// Returns `true` when the rope was actually extended (which bumps
+    /// `buffer_version`). An extension invalidates the current viewport-scoped
+    /// highlight spans — they described the OLD (shorter) window — so the caller
+    /// MUST re-highlight afterwards; otherwise the strict render gate would blank
+    /// syntax for the newly revealed lines. `false` means no work was done.
+    pub(crate) fn repopulate_large_file_rope(&mut self, min_lines_needed: usize) -> bool {
         if !self.large_file_mode {
-            return;
+            return false;
         }
         let path = match self.committed_active_file.as_deref().and_then(|s| s.strip_prefix("buf:"))
         {
             Some(p) => p.to_string(),
-            None => return,
+            None => return false,
         };
         let db = match self.doc_buffers.get(&path) {
             Some(db) => db,
-            None => return,
+            None => return false,
         };
         let total = db.total_lines();
         let needed = min_lines_needed.min(total);
         let current = self.editor_buffer.line_count().max(1);
         if current >= needed {
-            return;
+            return false;
         }
         let (caret_line, caret_col) =
             (self.editor_buffer.caret_line(), self.editor_buffer.caret_col());
@@ -813,6 +832,7 @@ impl GuiApp {
                 caret_line,
             );
         }
+        true
     }
 
     /// The authoritative total line count of the ACTIVE document, taken from

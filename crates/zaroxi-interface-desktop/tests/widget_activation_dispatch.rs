@@ -101,6 +101,8 @@ mod tests {
             current_language: zaroxi_core_platform_syntax::language::LanguageId::PlainText,
             latest_spans: None,
             latest_spans_version: 0,
+            latest_spans_owner: None,
+            last_good_highlight: None,
             cockpit_minimap_symbols: Vec::new(),
             cockpit_symbols_version: 0,
             git_diff_provider: zaroxi_core_platform_git::GitDiffProvider::new(),

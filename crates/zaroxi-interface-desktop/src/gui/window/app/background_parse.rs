@@ -46,18 +46,27 @@ fn highlight_with_reason(
     pool: &ParserPool,
     language: LanguageId,
     text: &str,
-) -> (Vec<HighlightSpan>, &'static str) {
+) -> (Vec<HighlightSpan>, &'static str, bool) {
     if language == LanguageId::PlainText {
-        return (Vec::new(), "disabled_by_language_detection");
+        return (Vec::new(), "disabled_by_language_detection", false);
     }
     if text.len() > MAX_PARSE_TEXT_BYTES {
-        return (Vec::new(), "disabled_by_budget_policy");
+        return (Vec::new(), "disabled_by_budget_policy", false);
     }
     let mut parser = match pool.acquire(&language) {
         Some(p) => p,
-        None => return (Vec::new(), "parse_failed"),
+        None => return (Vec::new(), "parse_failed", true),
     };
     let tree = parser.parse(text, None);
+    // `had_error` is true when Tree-sitter could not fully parse the text — the
+    // tree contains an ERROR / MISSING node. This is the key signal that the
+    // highlight result is a DEGRADED partial (error recovery collapses coverage,
+    // dramatically so for whitespace-sensitive grammars like YAML), so the
+    // caller can prefer a retained full-coverage baseline instead.
+    let had_error = match tree.as_ref() {
+        Some(t) => t.root_node().has_error(),
+        None => true,
+    };
     let spans = match tree.as_ref() {
         Some(t) => HighlightEngine::new().highlight(language, text, t).unwrap_or_default(),
         None => Vec::new(),
@@ -70,29 +79,68 @@ fn highlight_with_reason(
     } else {
         "enabled"
     };
-    (spans, reason)
+    (spans, reason, had_error)
 }
 
-/// Parse `text` with `language` and return highlight spans (synchronous path:
-/// first-paint / edit-time re-highlight). Empty when the language is plain text,
-/// the grammar is unavailable, parsing fails, or the text exceeds the
-/// (large-file) parse budget.
-///
-/// Shared with the background worker. The compiled query is cached process-wide
-/// (see `HighlightEngine`), so repeated calls are cheap.
-pub fn compute_spans(pool: &ParserPool, language: LanguageId, text: &str) -> Vec<HighlightSpan> {
-    let (spans, reason) = highlight_with_reason(pool, language, text);
+/// The full-buffer highlight computation plus the metadata needed to enforce
+/// coverage precedence (Part 5): whether the parse was degraded (`had_error`),
+/// the byte length of the parsed source, and how far the spans actually reach
+/// (`coverage_end`). A degraded result whose coverage falls far short of the
+/// source signals that Tree-sitter error recovery collapsed downstream
+/// highlighting and a retained full-coverage baseline should be preferred.
+#[derive(Debug, Clone)]
+pub struct SpanComputation {
+    pub spans: Vec<HighlightSpan>,
+    /// Tree-sitter reported an ERROR/MISSING node (partial/degraded parse).
+    pub had_error: bool,
+    /// Byte length of the exact source text that was parsed.
+    pub source_len: usize,
+    /// Highest `span.end` produced — the last byte the highlighting reaches.
+    pub coverage_end: usize,
+}
+
+/// Compute highlight spans for `text` and return them alongside coverage
+/// metadata (see [`SpanComputation`]). This is the synchronous edit-time /
+/// first-paint entry point; the coordinate space is ALWAYS full-buffer byte
+/// offsets into `text`.
+pub fn compute_spans_detailed(
+    pool: &ParserPool,
+    language: LanguageId,
+    text: &str,
+) -> SpanComputation {
+    let (spans, reason, had_error) = highlight_with_reason(pool, language, text);
+    let coverage_end = spans.iter().map(|s| s.end).max().unwrap_or(0);
     if syntax_trace_enabled() {
         eprintln!(
-            "ZAROXI_DEBUG_SYNTAX: syntax={} path=sync lang={:?} text_bytes={} budget={} span_count={}",
+            "ZAROXI_DEBUG_SYNTAX: syntax={} path=sync lang={:?} text_bytes={} budget={} span_count={} had_error={} coverage_end={}",
             reason,
             language,
             text.len(),
             MAX_PARSE_TEXT_BYTES,
             spans.len(),
+            had_error,
+            coverage_end,
         );
     }
-    spans
+    SpanComputation { spans, had_error, source_len: text.len(), coverage_end }
+}
+
+/// A retained, error-free full-buffer highlight baseline for the active NORMAL
+/// file. When a later edit parses to a DEGRADED result (Tree-sitter error
+/// recovery collapses coverage), the unchanged suffix of this baseline is
+/// remapped across the edit so downstream lines keep their correct highlighting
+/// instead of falling back to plain text. Only ever holds a full_buffer result
+/// (never a viewport window), and only for normal files.
+#[derive(Debug, Clone)]
+pub struct GoodHighlight {
+    /// Full buffer text this baseline was parsed from.
+    pub text: String,
+    /// Full-buffer byte-offset spans (error-free coverage).
+    pub spans: Vec<HighlightSpan>,
+    /// Buffer version the baseline was computed at.
+    pub version: u64,
+    /// Owning file identity (`committed_active_file`).
+    pub owner: Option<String>,
 }
 
 /// An immutable snapshot of the buffer at a specific version.
@@ -101,6 +149,11 @@ pub struct BufferSnapshot {
     pub version: u64,
     pub text: String,
     pub language: LanguageId,
+    /// Canonical active-file identity this snapshot was taken from. Echoed back
+    /// on the [`ParseResult`] so the UI thread can enforce strict span
+    /// ownership: an async result whose owner no longer matches the active file
+    /// is dropped rather than painted onto the wrong document.
+    pub owner: Option<String>,
 }
 
 /// The result of a background parse operation.
@@ -110,6 +163,9 @@ pub struct ParseResult {
     pub spans: Vec<HighlightSpan>,
     pub incremental: bool,
     pub duration_us: u64,
+    /// The file identity the parsed snapshot belonged to (see
+    /// [`BufferSnapshot::owner`]).
+    pub owner: Option<String>,
 }
 
 /// A background worker that receives buffer snapshots and produces
@@ -221,6 +277,7 @@ impl BackgroundParseWorker {
         while let Ok(snapshot) = snap_rx.recv() {
             let start = Instant::now();
             let lang = snapshot.language;
+            let owner = snapshot.owner.clone();
 
             if debug_pipeline {
                 eprintln!(
@@ -235,7 +292,7 @@ impl BackgroundParseWorker {
             // budget here is the SAME constant as the backend large-file
             // boundary, so a rope-backed normal file is never rejected and a
             // large file's (already viewport-scoped) text always parses.
-            let (spans, reason) = highlight_with_reason(&pool, lang, &snapshot.text);
+            let (spans, reason, _had_error) = highlight_with_reason(&pool, lang, &snapshot.text);
             let dur = start.elapsed().as_micros() as u64;
 
             if syntax_trace_enabled() {
@@ -264,6 +321,7 @@ impl BackgroundParseWorker {
                 spans,
                 incremental: false,
                 duration_us: dur,
+                owner,
             });
         }
     }

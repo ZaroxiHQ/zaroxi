@@ -411,7 +411,15 @@ impl GuiApp {
                 .map(|m| m.editor_scroll_top_line)
                 .unwrap_or(0)
                 .saturating_add(200);
-            self.repopulate_large_file_rope(scroll_end);
+            // A rope extension bumps `buffer_version` and leaves the previous
+            // viewport-scoped spans describing the OLD (shorter) window. Re-run
+            // the synchronous viewport re-highlight so `latest_spans` /
+            // `latest_spans_version` match the newly extended window; without
+            // this the strict render gate would blank syntax for the revealed
+            // lines (a version mismatch) after every scroll.
+            if self.repopulate_large_file_rope(scroll_end) {
+                self.schedule_background_parse();
+            }
         }
 
         // Deferred owner-mismatch re-hydration for normal files: the render
@@ -1137,8 +1145,18 @@ impl GuiApp {
             // always preferred over wrong colors; correct colors appear on the
             // next frame once a parse for the current version lands.
             let render_buffer_version = self.editor_buffer.buffer_version;
-            let syntax_snapshot_verified =
-                self.latest_spans.is_some() && self.latest_spans_version == render_buffer_version;
+            // Strict span ownership: spans may color the frame ONLY when they
+            // describe this exact buffer version AND belong to the currently
+            // active file. The version check rejects spans computed from a
+            // different snapshot (open flash, materialization bump, superseded
+            // async parse); the owner check closes the residual window where a
+            // monotonic version could coincide across a file switch. Any failure
+            // falls through to plain text — never wrong colors.
+            let owner_matches =
+                self.latest_spans_owner.as_deref() == self.committed_active_file.as_deref();
+            let syntax_snapshot_verified = self.latest_spans.is_some()
+                && self.latest_spans_version == render_buffer_version
+                && owner_matches;
             let spans_for_render: &[HighlightSpan] = if syntax_snapshot_verified {
                 self.latest_spans.as_deref().unwrap_or(&[])
             } else {
@@ -1151,6 +1169,8 @@ impl GuiApp {
                     "no_spans_yet"
                 } else if self.latest_spans_version != render_buffer_version {
                     "version_mismatch"
+                } else if !owner_matches {
+                    "owner_mismatch"
                 } else {
                     "ok"
                 };

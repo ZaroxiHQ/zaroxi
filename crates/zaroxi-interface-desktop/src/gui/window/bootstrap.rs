@@ -151,6 +151,8 @@ pub fn run_shell_window(
         current_language: zaroxi_core_platform_syntax::language::LanguageId::PlainText,
         latest_spans: None,
         latest_spans_version: 0,
+        latest_spans_owner: None,
+        last_good_highlight: None,
         open_intent: None,
         editor_group: crate::gui::window::EditorGroup::default(),
         last_explorer_click: None,

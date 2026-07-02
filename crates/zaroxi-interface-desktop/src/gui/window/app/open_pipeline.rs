@@ -809,6 +809,9 @@ impl GuiApp {
         if buffer_changed {
             self.latest_spans = None;
             self.latest_spans_version = 0;
+            self.latest_spans_owner = None;
+            // The retained full-coverage baseline belongs to the previous file.
+            self.last_good_highlight = None;
             if let Some(ref mut worker) = self.parse_worker {
                 worker.clear_result();
             }
@@ -890,6 +893,10 @@ impl GuiApp {
             if !buffer_changed && !self.large_file_mode {
                 self.latest_spans = None;
                 self.latest_spans_version = 0;
+                self.latest_spans_owner = None;
+                // Materialized content replaces the previous body; its baseline
+                // no longer applies.
+                self.last_good_highlight = None;
                 if let Some(ref mut worker) = self.parse_worker {
                     worker.clear_result();
                 }
@@ -1308,7 +1315,12 @@ impl GuiApp {
                         if self.large_file_mode { "large" } else { "normal" },
                     );
                 }
-                worker.schedule_parse(background_parse::BufferSnapshot { version, text, language });
+                worker.schedule_parse(background_parse::BufferSnapshot {
+                    version,
+                    text,
+                    language,
+                    owner: self.committed_active_file.clone(),
+                });
             }
             if syntax_trace_enabled() {
                 eprintln!(
@@ -1472,20 +1484,99 @@ impl GuiApp {
             );
         }
 
-        // Synchronous re-highlight keeps spans aligned with the current text.
-        // Only overwrite the stored highlights when we have a result (a
-        // supported language with non-empty text), so an unsupported/empty
-        // parse never flashes existing colours away.
-        let spans = background_parse::compute_spans(&self.parser_pool, language, &text);
-        let applied = !spans.is_empty();
-        if applied {
-            self.latest_spans = Some(spans);
-            self.latest_spans_version = version;
-            // The line hash changes on every edit, so the editor cache already
-            // rebuilds; clearing keeps the per-line syntax cache consistent.
-            self.cached_editor_lines_hash = 0;
-            self.line_syntax_cache.clear();
+        // Synchronous re-highlight is the AUTHORITATIVE immediate result for the
+        // current buffer version. It ALWAYS records the version it parsed (and
+        // the owning file), even when the parse produced zero spans, so
+        // `latest_spans`/`latest_spans_version` ALWAYS describe exactly the
+        // version they claim (no stale carry-forward).
+        let computed = background_parse::compute_spans_detailed(&self.parser_pool, language, &text);
+        let owner = self.committed_active_file.clone();
+
+        // ── Coverage precedence + downstream retention (normal files only) ──
+        // Tree-sitter error recovery collapses coverage on a transient invalid
+        // edit — dramatically for whitespace-sensitive grammars (YAML): a single
+        // mid-typed line can drop coverage from the whole buffer to a handful of
+        // leading bytes, blanking every later (unchanged, still-valid) line.
+        //
+        // Policy:
+        //   - A CLEAN full-buffer parse (no error, non-empty) is authoritative
+        //     and becomes the retained baseline.
+        //   - A DEGRADED parse (Tree-sitter reported an error) never colors the
+        //     actively edited region: the retained baseline is remapped across
+        //     the edit (exact prefix/suffix diff) so later lines keep their
+        //     correct colors, while the touched line(s) become an explicit PLAIN
+        //     HOLE. Fresh degraded spans are dropped entirely — they may not
+        //     color a single byte until the parse is clean again. This is
+        //     preferred whenever a baseline exists (not gated on coverage), so
+        //     the edited line is deterministically plain during invalid moments.
+        //   - Large-file (viewport) mode keeps its own fresh-only policy; the
+        //     baseline is never populated or consulted there (Part 7).
+        let mut effective = computed.spans.clone();
+        let mut kind = "full_buffer";
+        if self.large_file_mode {
+            kind = "viewport_window";
+        } else if !computed.had_error && !computed.spans.is_empty() {
+            // Clean full-buffer coverage → refresh the retained baseline.
+            self.last_good_highlight = Some(background_parse::GoodHighlight {
+                text: text.clone(),
+                spans: computed.spans.clone(),
+                version,
+                owner: owner.clone(),
+            });
+        } else if computed.had_error
+            && let Some(good) = self.last_good_highlight.as_ref().filter(|g| g.owner == owner)
+        {
+            let fresh_cov = crate::gui::window::syntax_color::coverage_end(&computed.spans);
+            let remapped = crate::gui::window::syntax_color::remap_good_spans_across_edit(
+                &good.text,
+                &text,
+                &good.spans,
+            );
+            let remapped_cov = crate::gui::window::syntax_color::coverage_end(&remapped);
+            if std::env::var("ZAROXI_DEBUG_SYNTAX_APPLY").as_deref() == Ok("1") {
+                eprintln!(
+                    "ZAROXI_DEBUG_SYNTAX_APPLY: syntax_result_accept kind=retained_suffix_plain_hole owner={:?} version={} source_len={} span_count={} fresh_cov={} retained_cov={}",
+                    owner,
+                    version,
+                    text.len(),
+                    remapped.len(),
+                    fresh_cov,
+                    remapped_cov,
+                );
+            }
+            effective = remapped;
+            kind = "retained_suffix_plain_hole";
         }
+        let applied = !effective.is_empty();
+        if std::env::var("ZAROXI_DEBUG_SYNTAX_APPLY").as_deref() == Ok("1") {
+            // `source_len` is the exact byte length the parser saw; it MUST equal
+            // the buffer text the renderer will apply these spans to. Emitting it
+            // makes a coordinate-space drift (spans built from a different source
+            // than rendered) immediately visible in the trace (Part 3).
+            debug_assert_eq!(
+                computed.source_len,
+                text.len(),
+                "span source_len must match the current buffer text length",
+            );
+            eprintln!(
+                "ZAROXI_DEBUG_SYNTAX_APPLY: syntax_coverage kind={kind} owner={:?} version={} source_len={} had_error={} fresh_coverage_end={} span_count={} effective_coverage_end={}",
+                owner,
+                version,
+                computed.source_len,
+                computed.had_error,
+                computed.coverage_end,
+                effective.len(),
+                crate::gui::window::syntax_color::coverage_end(&effective),
+            );
+        }
+        self.latest_spans = Some(effective);
+        self.latest_spans_version = version;
+        self.latest_spans_owner = owner;
+        // The line hash changes on every edit, so the editor cache already
+        // rebuilds; clearing keeps the per-line syntax cache consistent and
+        // guarantees no per-line colored payload survives across this edit.
+        self.cached_editor_lines_hash = 0;
+        self.line_syntax_cache.clear();
         if syntax_trace_enabled() {
             eprintln!(
                 "ZAROXI_SYNTAX_TRACE: rehighlight_sync path={:?} lang={:?} buffer_version={} spans_version={} spans={} applied={} text_bytes={}",
@@ -1764,7 +1855,7 @@ impl GuiApp {
             let current = worker.latest_version();
             let got = match worker.poll_result() {
                 Some(result) if result.version == current => {
-                    Some((result.spans.clone(), result.version))
+                    Some((result.spans.clone(), result.version, result.owner.clone()))
                 }
                 _ => None,
             };
@@ -1776,13 +1867,23 @@ impl GuiApp {
             None
         };
 
-        if let Some((spans, version)) = accepted {
-            // Only apply strictly-newer results. Synchronous re-highlighting on
-            // edit advances `latest_spans_version` to the current buffer
-            // version, so any stale async result (an older version still in the
-            // worker channel) is dropped silently and can never overwrite the
-            // current highlights.
-            if version > self.latest_spans_version {
+        if let Some((spans, version, owner)) = accepted {
+            // ── Strict async precedence + ownership ──
+            // An async parse result may replace the current highlighting ONLY
+            // when BOTH hold:
+            //   1. It is strictly newer than the current spans version. The
+            //      synchronous edit-time re-highlight advances
+            //      `latest_spans_version` to the current buffer version on every
+            //      keystroke, so any stale async result (older, or equal to a
+            //      value a sync pass already committed) is dropped and can never
+            //      downgrade or overwrite a correct newer sync state.
+            //   2. It belongs to the currently active file. The result carries
+            //      the file identity its snapshot was taken from; if the user has
+            //      since switched files, the result is dropped rather than
+            //      painted onto the wrong document.
+            let owner_matches = owner.as_deref() == self.committed_active_file.as_deref();
+            let newer = version > self.latest_spans_version;
+            if newer && owner_matches {
                 if std::env::var("ZAROXI_DEBUG_PARSE_PIPELINE").as_deref() == Ok("1") {
                     eprintln!(
                         "ZAROXI_DEBUG_PARSE_PIPELINE: spans_stored v={} span_count={} lang={:?}",
@@ -1802,10 +1903,17 @@ impl GuiApp {
                 }
                 self.latest_spans = Some(spans);
                 self.latest_spans_version = version;
+                self.latest_spans_owner = owner;
                 // Force the editor shaping caches to rebuild with the new spans.
                 self.cached_editor_lines_hash = 0;
                 self.line_syntax_cache.clear();
                 self.invalidate(InvalidationFlags::syntax());
+            } else if std::env::var("ZAROXI_DEBUG_SYNTAX_APPLY").as_deref() == Ok("1") {
+                let reason = if !owner_matches { "wrong_owner" } else { "stale_version" };
+                eprintln!(
+                    "ZAROXI_DEBUG_SYNTAX_APPLY: syntax_spans_rejected reason={reason} version={} latest_version={} result_owner={:?} active_file={:?}",
+                    version, self.latest_spans_version, owner, self.committed_active_file,
+                );
             }
         }
     }
