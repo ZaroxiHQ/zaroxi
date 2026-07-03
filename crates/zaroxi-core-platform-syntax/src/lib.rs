@@ -24,7 +24,6 @@ pub mod dynamic_loader;
 /// This module exposes the public `SyntaxError` type and related DTOs used by
 /// callers to represent and transport syntax-related failures.
 pub mod error;
-pub mod grammar_builder;
 pub mod grammar_registry;
 pub mod highlight;
 pub mod language;
@@ -40,7 +39,6 @@ pub mod timing;
 // Re-export main types for convenience
 pub use dynamic_loader::DynamicGrammarLoader;
 pub use error::SyntaxError;
-pub use grammar_builder::build_and_install_grammar;
 pub use grammar_registry::{
     GrammarInfo, available_languages, download_and_install_grammar, for_language,
     install_missing_grammars, is_grammar_installed,

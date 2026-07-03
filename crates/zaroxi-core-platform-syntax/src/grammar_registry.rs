@@ -55,7 +55,7 @@ impl GrammarRegistry {
             extensions: vec!["rs".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-rust".to_string(),
-            revision: "v0.24.0".to_string(),
+            revision: "v0.24.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
@@ -75,12 +75,12 @@ impl GrammarRegistry {
             extensions: vec!["toml".to_string()],
             filenames: vec!["Cargo.toml".to_string(), "rust-toolchain.toml".to_string()],
             repo_url: "https://github.com/tree-sitter-grammars/tree-sitter-toml".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.7.0".to_string(),
             subdirectory: None,
-            source_files: vec!["src/parser.c".to_string()],
-            query_files: vec!["highlights.scm".to_string(), "language.toml".to_string()],
-            has_scanner: false,
-            scanner_lang: None,
+            source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
+            query_files: vec!["highlights.scm".to_string()],
+            has_scanner: true,
+            scanner_lang: Some("c".to_string()),
         });
 
         // Markdown - using tree-sitter-markdown-inline directory
@@ -92,7 +92,7 @@ impl GrammarRegistry {
             extensions: vec!["md".to_string(), "markdown".to_string()],
             filenames: vec!["README.md".to_string()],
             repo_url: "https://github.com/tree-sitter-grammars/tree-sitter-markdown".to_string(),
-            revision: "split_parser".to_string(),
+            revision: "v0.5.3".to_string(),
             subdirectory: Some("tree-sitter-markdown-inline".to_string()),
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec!["highlights.scm".to_string(), "injections.scm".to_string()],
@@ -107,7 +107,7 @@ impl GrammarRegistry {
             extensions: vec!["js".to_string(), "jsx".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-javascript".to_string(),
-            revision: "v0.22.0".to_string(),
+            revision: "v0.25.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
@@ -126,7 +126,7 @@ impl GrammarRegistry {
             extensions: vec!["py".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-python".to_string(),
-            revision: "v0.22.0".to_string(),
+            revision: "v0.25.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
@@ -145,7 +145,7 @@ impl GrammarRegistry {
             extensions: vec!["json".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-json".to_string(),
-            revision: "v0.22.0".to_string(),
+            revision: "v0.24.8".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec!["highlights.scm".to_string()],
@@ -160,7 +160,7 @@ impl GrammarRegistry {
             extensions: vec!["css".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-css".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.25.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -179,7 +179,7 @@ impl GrammarRegistry {
             extensions: vec!["html".to_string(), "htm".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-html".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.23.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -198,7 +198,7 @@ impl GrammarRegistry {
             extensions: vec!["go".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-go".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.25.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -217,7 +217,7 @@ impl GrammarRegistry {
             extensions: vec!["java".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-java".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.23.5".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -236,7 +236,7 @@ impl GrammarRegistry {
             extensions: vec!["sh".to_string(), "bash".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-bash".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.25.1".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -255,7 +255,7 @@ impl GrammarRegistry {
             extensions: vec!["c".to_string(), "h".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-c".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.24.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -281,7 +281,7 @@ impl GrammarRegistry {
             ],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-cpp".to_string(),
-            revision: "v0.21.0".to_string(),
+            revision: "v0.23.4".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -300,7 +300,7 @@ impl GrammarRegistry {
             extensions: vec!["cs".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-c-sharp".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.23.5".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -319,7 +319,7 @@ impl GrammarRegistry {
             extensions: vec!["rb".to_string()],
             filenames: vec!["Gemfile".to_string(), "Rakefile".to_string()],
             repo_url: "https://github.com/tree-sitter/tree-sitter-ruby".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.23.1".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -338,7 +338,7 @@ impl GrammarRegistry {
             extensions: vec!["ts".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-typescript".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.23.2".to_string(),
             subdirectory: Some("typescript".to_string()),
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
@@ -357,7 +357,7 @@ impl GrammarRegistry {
             extensions: vec!["tsx".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter/tree-sitter-typescript".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.23.2".to_string(),
             subdirectory: Some("tsx".to_string()),
             source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
@@ -376,7 +376,7 @@ impl GrammarRegistry {
             extensions: vec!["lua".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter-grammars/tree-sitter-lua".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.5.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -395,7 +395,7 @@ impl GrammarRegistry {
             extensions: vec!["yaml".to_string(), "yml".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter-grammars/tree-sitter-yaml".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.7.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -414,7 +414,7 @@ impl GrammarRegistry {
             extensions: vec!["zig".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/tree-sitter-grammars/tree-sitter-zig".to_string(),
-            revision: "master".to_string(),
+            revision: "v1.1.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -433,7 +433,7 @@ impl GrammarRegistry {
             extensions: vec!["cmake".to_string()],
             filenames: vec!["CMakeLists.txt".to_string()],
             repo_url: "https://github.com/uyha/tree-sitter-cmake".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.7.2".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -452,7 +452,7 @@ impl GrammarRegistry {
             extensions: vec![],
             filenames: vec!["Dockerfile".to_string()],
             repo_url: "https://github.com/camdencheek/tree-sitter-dockerfile".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.2.0".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -471,7 +471,7 @@ impl GrammarRegistry {
             extensions: vec!["ex".to_string(), "exs".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/elixir-lang/tree-sitter-elixir".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.3.5".to_string(),
             subdirectory: None,
             source_files: vec!["src/parser.c".to_string()],
             query_files: vec![
@@ -490,16 +490,16 @@ impl GrammarRegistry {
             extensions: vec!["nix".to_string()],
             filenames: vec![],
             repo_url: "https://github.com/nix-community/tree-sitter-nix".to_string(),
-            revision: "master".to_string(),
+            revision: "v0.3.0".to_string(),
             subdirectory: None,
-            source_files: vec!["src/parser.c".to_string()],
+            source_files: vec!["src/parser.c".to_string(), "src/scanner.c".to_string()],
             query_files: vec![
                 "highlights.scm".to_string(),
                 "locals.scm".to_string(),
                 "injections.scm".to_string(),
             ],
-            has_scanner: false,
-            scanner_lang: None,
+            has_scanner: true,
+            scanner_lang: Some("c".to_string()),
         });
     }
 
@@ -560,7 +560,10 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
         .ok_or_else(|| format!("Unknown language: {}", language_id))?;
 
     let runtime = crate::runtime::Runtime::new();
-    let grammars_dir = runtime.grammar_dir();
+    // Install into the platform-specific subdirectory (e.g.
+    // `grammars/macos-aarch64/`) so builds are namespaced per OS/arch and match
+    // the committed Linux layout and the runtime loader's platform fallback.
+    let grammars_dir = runtime.grammar_dir().join(platform_subdir());
     let languages_dir = runtime.language_dir(language_id);
 
     // Create directories if they don't exist
@@ -606,12 +609,19 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
     // platform compiler discovered via the `cc` crate. This is gcc/clang/MSVC
     // aware and works both inside a Cargo build script and when run standalone
     // from the `download_grammars` binary (see `compile_grammar_shared_library`).
+    // The library basename must match what the runtime loader
+    // (`Runtime::grammar_library_path`) looks for. Some language ids use
+    // underscores while the library uses hyphens (e.g. `c_sharp` -> `c-sharp`).
+    let lib_id = match language_id {
+        "c_sharp" => "c-sharp",
+        other => other,
+    };
     let output_lib = if cfg!(windows) {
-        grammars_dir.join(format!("tree-sitter-{}.dll", language_id))
+        grammars_dir.join(format!("tree-sitter-{}.dll", lib_id))
     } else if cfg!(target_os = "macos") {
-        grammars_dir.join(format!("libtree-sitter-{}.dylib", language_id))
+        grammars_dir.join(format!("libtree-sitter-{}.dylib", lib_id))
     } else {
-        grammars_dir.join(format!("libtree-sitter-{}.so", language_id))
+        grammars_dir.join(format!("libtree-sitter-{}.so", lib_id))
     };
 
     if let Err(e) = compile_grammar_shared_library(&source_dir, info, language_id, &output_lib) {
@@ -665,6 +675,13 @@ pub fn install_missing_grammars() -> Vec<String> {
     installed
 }
 
+/// Platform subdirectory for grammar libraries, e.g. `linux-x86_64`,
+/// `macos-aarch64`, `windows-x86_64`. Matches the runtime loader's fallback and
+/// the committed layout under `runtime/treesitter/grammars/<platform>/`.
+fn platform_subdir() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+}
+
 /// Host target triple, captured at build time by `build.rs`
 /// (`cargo:rustc-env=ZAROXI_BUILD_TARGET`). Empty if unavailable. Used to drive
 /// the `cc` crate correctly when compiling grammars outside a Cargo build script.
@@ -693,41 +710,46 @@ fn grammar_export_symbol(language_id: &str) -> String {
 /// when invoked standalone from the `download_grammars` binary.
 fn compile_grammar_shared_library(
     source_dir: &std::path::Path,
-    info: &GrammarInfo,
+    _info: &GrammarInfo,
     language_id: &str,
     output_lib: &std::path::Path,
 ) -> Result<(), String> {
-    // Collect the source files that actually exist.
-    let mut sources: Vec<std::path::PathBuf> = Vec::new();
-    for src in &info.source_files {
-        let p = source_dir.join(src);
+    // Auto-detect the grammar sources instead of trusting the registry's
+    // `source_files` list (which drifts as grammars add/remove external
+    // scanners across versions — the exact bug that broke toml/nix). Every
+    // Tree-sitter grammar ships `parser.c`; some also ship a `scanner.c`/`.cc`
+    // external scanner that MUST be linked or the library fails to `dlopen`
+    // (undefined `tree_sitter_*_external_scanner_*` symbols).
+    let src_root = if source_dir.join("src").join("parser.c").exists() {
+        source_dir.join("src")
+    } else if source_dir.join("parser.c").exists() {
+        source_dir.to_path_buf()
+    } else {
+        return Err(format!(
+            "parser.c not found for {} under {}",
+            language_id,
+            source_dir.display()
+        ));
+    };
+
+    let mut sources: Vec<std::path::PathBuf> = vec![src_root.join("parser.c")];
+    // Optional external scanner (first match wins; C or C++).
+    for cand in ["scanner.c", "scanner.cc", "scanner.cpp", "scanner.cxx"] {
+        let p = src_root.join(cand);
         if p.exists() {
             sources.push(p);
-        } else {
-            eprintln!("Warning: source file not found: {}", p.display());
-        }
-    }
-    if sources.is_empty() {
-        return Err(format!("no source files found for {}", language_id));
-    }
-
-    // `parser.c` includes `"tree_sitter/parser.h"` from its own directory, so add
-    // each source file's parent as an include path.
-    let mut includes: Vec<std::path::PathBuf> = Vec::new();
-    for s in &sources {
-        if let Some(parent) = s.parent() {
-            let parent = parent.to_path_buf();
-            if !includes.contains(&parent) {
-                includes.push(parent);
-            }
+            break;
         }
     }
 
-    // Some grammars ship a C++ external scanner.
-    let use_cpp = info.scanner_lang.as_deref() == Some("cpp")
-        || sources.iter().any(|s| {
-            matches!(s.extension().and_then(|e| e.to_str()), Some("cc") | Some("cpp") | Some("cxx"))
-        });
+    // `parser.c`/`scanner.*` include `"tree_sitter/parser.h"` from their own
+    // directory, so the source root is the include path.
+    let includes: Vec<std::path::PathBuf> = vec![src_root.clone()];
+
+    // A C++ scanner requires the C++ compiler/runtime.
+    let use_cpp = sources.iter().any(|s| {
+        matches!(s.extension().and_then(|e| e.to_str()), Some("cc") | Some("cpp") | Some("cxx"))
+    });
 
     // Discover the platform compiler. Setting target/host/opt-level on the
     // builder avoids depending on Cargo-provided env when run standalone.

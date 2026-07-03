@@ -346,10 +346,11 @@ fn yaml_midedit_retains_downstream_highlighting_via_remap() {
     let good_cov = coverage_end(&good);
     assert!(good_cov >= valid.len() - 2, "baseline covers ~whole buffer");
 
-    // Mid-edit: a bareword line inserted before `services:` makes the doc
-    // temporarily invalid — Tree-sitter collapses coverage.
-    let midedit =
-        "name: app\nversion: 1\nfoo\nservices:\n  web:\n    image: nginx\n    ports:\n      - 80\n";
+    // Mid-edit: a tab-indented line inserted before `services:` makes the doc
+    // temporarily invalid (tabs are illegal for YAML block indentation), so
+    // Tree-sitter collapses downstream coverage. This is a clean single-line
+    // insertion, so the baseline spans can be remapped across it below.
+    let midedit = "name: app\nversion: 1\n\t\tbad: x\nservices:\n  web:\n    image: nginx\n    ports:\n      - 80\n";
     let (fresh, fresh_err) = real_spans(lang, midedit);
     assert!(fresh_err, "mid-edit YAML is degraded");
     let fresh_cov = coverage_end(&fresh);

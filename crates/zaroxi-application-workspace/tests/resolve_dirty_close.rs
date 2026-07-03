@@ -85,14 +85,20 @@ fn discard_drops_unsaved_edits_on_reopen() -> std::io::Result<()> {
 }
 
 #[test]
+// `set_readonly(false)` below is intentional: it restores writability purely so
+// the temp file can be deleted during cleanup (on Windows a read-only file
+// cannot be removed). We are not relying on it for any security property.
+#[allow(clippy::permissions_set_readonly_false)]
 fn save_failure_leaves_buffer_open_and_reports_failure() -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
     let path = unique_path("save_failure");
     fs::write(&path, "alpha\nbeta")?;
-    // make file read-only to force write failure on save
+    // Make the file read-only to force a write failure on save. `set_readonly`
+    // is cross-platform: on Unix it clears the write bits, on Windows it sets the
+    // read-only attribute — both cause the editor's save to fail, which is the
+    // contract under test. (Note: this relies on not running as a privileged
+    // user that can bypass permissions, which holds for CI runners.)
     let mut perms = fs::metadata(&path)?.permissions();
-    perms.set_mode(0o444);
+    perms.set_readonly(true);
     fs::set_permissions(&path, perms)?;
 
     let svc = EditorService::new_from_file(&path)?;
@@ -107,9 +113,9 @@ fn save_failure_leaves_buffer_open_and_reports_failure() -> std::io::Result<()> 
     assert_eq!(svc.opened_paths().len(), 1);
     assert!(svc.snapshot().dirty);
 
-    // restore permissions so cleanup can remove file
+    // restore writability so cleanup can remove the file
     let mut perms = fs::metadata(&path)?.permissions();
-    perms.set_mode(0o644);
+    perms.set_readonly(false);
     fs::set_permissions(&path, perms)?;
     let _ = fs::remove_file(&path);
     Ok(())
