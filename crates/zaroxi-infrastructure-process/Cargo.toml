@@ -6,3 +6,6 @@ description = "zaroxi-infrastructure-process (auto-generated)"
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

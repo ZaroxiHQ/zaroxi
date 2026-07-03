@@ -35,14 +35,15 @@ coverage/
 tmp/
 temp/
 
-# Runtime directory - contains downloaded and compiled Tree-sitter grammars
-runtime/treesitter/grammars/**
-runtime/treesitter/languages/**
-!runtime/treesitter/grammars/
-!runtime/treesitter/languages/
-runtime/treesitter/*
-!runtime/treesitter/grammars
-!runtime/treesitter/languages
+# Tree-sitter runtime grammars are COMMITTED so syntax-highlighting tests are
+# reproducible in CI without a network/toolchain build step. The blanket
+# `**/*.o`, `**/*.so` and `**/*.dylib` rules above would otherwise hide the
+# compiled grammar libraries, so re-include them here.
+# (Regenerate/refresh with tooling/scripts/prepare-treesitter.sh.)
+!crates/zaroxi-core-platform-syntax/runtime/treesitter/grammars/**
+# The precompiled .wasm blobs are not used by the dynamic (.so/.dylib/.dll)
+# loader — keep them out of the repo to avoid bloat.
+crates/zaroxi-core-platform-syntax/runtime/treesitter/grammars/**/*.wasm
 
 # Build artifacts (project-wide)
 **/target/

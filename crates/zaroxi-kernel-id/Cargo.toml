@@ -9,3 +9,6 @@ authors = ["Zaroxi"]
 [dependencies]
 serde = { workspace = true }
 uuid = { workspace = true }
+
+[lints]
+workspace = true

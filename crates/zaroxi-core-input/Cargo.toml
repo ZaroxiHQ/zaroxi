@@ -7,3 +7,6 @@ license = "MIT"
 
 [dependencies]
 winit = { workspace = true }
+
+[lints]
+workspace = true

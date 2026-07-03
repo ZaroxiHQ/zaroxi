@@ -52,3 +52,6 @@ full_renderer = [
     "lru",
     "vello",
 ]
+
+[lints]
+workspace = true

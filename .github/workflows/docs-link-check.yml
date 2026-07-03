@@ -23,18 +23,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
-      - name: Install markdown-link-check
-        run: npm install -g markdown-link-check
-
-      - name: Run link checks (skip external URLs)
+      # markdown-link-check is invoked via a PINNED version (not a floating
+      # `npm install -g` latest). Versions >= 3.12 pull an ESM-only `marked`
+      # through markdown-link-extractor and crash with ERR_REQUIRE_ESM; 3.11.2
+      # uses the CommonJS chain and runs reliably on the Node runtime above.
+      - name: Run link checks (internal links only; external URLs skipped)
         run: |
-          set -e
-          # Find all markdown files under docs/ and README.md
+          set -uo pipefail
+          # All markdown under docs/ plus the top-level README.
           files=$(find docs -name '*.md' -print; echo README.md)
           config=.github/markdown-link-check.json
+          status=0
           for f in $files; do
-            echo "Checking $f"
-            markdown-link-check -c "$config" "$f"
+            echo "::group::Checking $f"
+            if ! npx --yes markdown-link-check@3.11.2 -c "$config" "$f"; then
+              status=1
+            fi
+            echo "::endgroup::"
           done
+          exit "$status"

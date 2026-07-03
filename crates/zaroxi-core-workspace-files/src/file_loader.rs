@@ -99,6 +99,10 @@ impl FileLoader {
             }
             FileLoadStrategy::Mmap => {
                 let file = fs::File::open(path)?;
+                // SAFETY: memory-mapping is inherently unsafe because the file
+                // could be mutated by another process while mapped. We only read
+                // from the mapping and the `Mmap` is owned by the returned
+                // `FileSource`, so it stays valid for as long as the bytes are used.
                 let mmap = unsafe { Mmap::map(&file)? };
                 let _ = std::str::from_utf8(&mmap)?;
                 Ok((FileSource::Mmap(mmap), size))

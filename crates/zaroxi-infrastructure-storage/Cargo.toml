@@ -8,3 +8,6 @@ license = "MIT"
 [dependencies]
 # No direct workspace/core dependencies required for this adapter.
 # Keep the crate minimal and self-contained (use std::fs directly).
+
+[lints]
+workspace = true

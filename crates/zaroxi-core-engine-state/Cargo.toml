@@ -6,3 +6,6 @@ description = "Engine-local state primitives for rendering and UI."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

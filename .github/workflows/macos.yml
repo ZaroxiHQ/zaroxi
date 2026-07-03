@@ -36,5 +36,10 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      # Grammars are committed for linux only; build the macOS (.dylib) grammars
+      # here (uses git + the system C compiler/clang) before the syntax tests.
+      - name: Prepare Tree-sitter grammars
+        run: bash tooling/scripts/prepare-treesitter.sh
+
       - name: Test
         run: cargo test --workspace

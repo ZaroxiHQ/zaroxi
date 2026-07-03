@@ -10,3 +10,6 @@ license = "MIT"
 zaroxi-core-engine-scene = { workspace = true }
 zaroxi-core-engine-style = { workspace = true }
 zaroxi-kernel-math = { workspace = true }
+
+[lints]
+workspace = true

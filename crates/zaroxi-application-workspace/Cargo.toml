@@ -38,3 +38,6 @@ zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
 # that wire concrete infra adapters live at the composition root
 # (apps/zaroxi-desktop-harness) so the adapter -> port direction stays one-way
 # and no dependency cycle is introduced.
+
+[lints]
+workspace = true

@@ -9,3 +9,6 @@ license = "MIT"
 zaroxi-kernel-id = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true }
+
+[lints]
+workspace = true

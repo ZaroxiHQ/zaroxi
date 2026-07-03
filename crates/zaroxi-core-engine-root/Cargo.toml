@@ -6,3 +6,6 @@ description = "Engine root and lifecycle primitives for Zaroxi UI runtime."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

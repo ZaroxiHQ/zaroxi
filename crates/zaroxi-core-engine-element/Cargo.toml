@@ -6,3 +6,6 @@ description = "Low-level UI element primitives for engine."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

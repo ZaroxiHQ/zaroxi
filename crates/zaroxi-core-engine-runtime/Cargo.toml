@@ -6,3 +6,6 @@ description = "Engine runtime glue code for Zaroxi UI."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

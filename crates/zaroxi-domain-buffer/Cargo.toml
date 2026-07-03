@@ -8,3 +8,6 @@ license = "MIT"
 [dependencies]
 serde = { workspace = true }
 zaroxi-kernel-types = { workspace = true }
+
+[lints]
+workspace = true

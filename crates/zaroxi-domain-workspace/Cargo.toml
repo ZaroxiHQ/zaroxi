@@ -14,3 +14,6 @@ serde_json = { workspace = true }
 
 # Kernel types (strongly-typed ids) used by domain DTOs.
 zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
+
+[lints]
+workspace = true

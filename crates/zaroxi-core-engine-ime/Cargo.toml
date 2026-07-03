@@ -6,3 +6,6 @@ description = "IME integration for complex text input."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

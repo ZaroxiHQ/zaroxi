@@ -36,5 +36,11 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      # Grammars are committed for linux only; build the Windows (.dll) grammars
+      # here before the syntax tests. Uses Git Bash + a C toolchain.
+      - name: Prepare Tree-sitter grammars
+        shell: bash
+        run: bash tooling/scripts/prepare-treesitter.sh
+
       - name: Test
         run: cargo test --workspace

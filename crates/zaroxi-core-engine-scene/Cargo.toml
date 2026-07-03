@@ -15,3 +15,6 @@ zaroxi-core-engine-view = { workspace = true }
 # Recommended further validation:
 #   cargo test -p zaroxi-core-engine-view
 #   bash scripts/architecture_check.sh
+
+[lints]
+workspace = true

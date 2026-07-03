@@ -21,3 +21,6 @@ zaroxi-core-engine-render = { workspace = true }
 # The cross-crate interop/translation tests that need both live in
 # zaroxi-interface-desktop, which already depends on this crate. This keeps the
 # two interface crates from mutually depending on each other.
+
+[lints]
+workspace = true

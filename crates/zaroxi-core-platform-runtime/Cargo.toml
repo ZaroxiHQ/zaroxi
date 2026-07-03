@@ -6,3 +6,6 @@ description = "Platform runtime helpers and adapters."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

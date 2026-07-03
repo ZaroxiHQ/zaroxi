@@ -8,3 +8,6 @@ license = "MIT"
 [dependencies]
 memchr = { workspace = true }
 ropey = { workspace = true }
+
+[lints]
+workspace = true

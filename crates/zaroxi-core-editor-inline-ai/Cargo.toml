@@ -6,3 +6,6 @@ description = "Inline AI integration contracts for editor."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

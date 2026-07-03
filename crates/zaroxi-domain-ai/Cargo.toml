@@ -9,3 +9,6 @@ license = "MIT"
 serde = { workspace = true }
 uuid = { workspace = true }
 # Add crate-specific dependencies when replacing stubbed manifests.
+
+[lints]
+workspace = true

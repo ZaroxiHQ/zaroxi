@@ -23,3 +23,6 @@ zaroxi-kernel-types = { path = "../zaroxi-kernel-types" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 # Core engine UI: ContentView type for composing panel content into scene primitives.
 zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ description = "Domain model for collaboration (events, intents)."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

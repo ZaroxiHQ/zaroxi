@@ -6,3 +6,6 @@ description = "zaroxi-domain-plugin (auto-generated)"
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

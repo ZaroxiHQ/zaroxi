@@ -6,3 +6,6 @@ description = "Decoration APIs for editor (high-level)."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

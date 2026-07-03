@@ -6,3 +6,6 @@ description = "Application-level orchestration for collaboration."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

@@ -9,3 +9,6 @@ license = "MIT"
 zaroxi-core-editor-gutter = { path = "../zaroxi-core-editor-gutter" }
 zaroxi-core-editor-viewport = { path = "../zaroxi-core-editor-viewport" }
 zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
+
+[lints]
+workspace = true

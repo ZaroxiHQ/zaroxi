@@ -6,3 +6,6 @@ description = "Transient overlay primitives (menus, tooltips)."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

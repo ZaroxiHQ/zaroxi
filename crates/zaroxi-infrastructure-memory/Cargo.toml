@@ -14,3 +14,6 @@ zaroxi-application-workspace = { path = "../zaroxi-application-workspace" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+
+[lints]
+workspace = true

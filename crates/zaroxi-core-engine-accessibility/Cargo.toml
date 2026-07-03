@@ -6,3 +6,6 @@ description = "Accessibility hooks and a11y integration."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

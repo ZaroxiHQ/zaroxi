@@ -156,7 +156,11 @@ mod enabled {
             return None;
         }
 
-        // Load the library
+        // SAFETY: `library_path` points to a Tree-sitter grammar shared library
+        // shipped in the runtime dir. Loading it and calling its
+        // `tree_sitter_<lang>` constructor is an FFI operation; the returned
+        // `Language` is valid for the process lifetime because the library is
+        // deliberately leaked (`mem::forget`) so it is never unloaded while in use.
         unsafe {
             match Library::new(&library_path) {
                 Ok(lib) => {

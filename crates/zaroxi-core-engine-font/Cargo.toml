@@ -6,3 +6,6 @@ description = "Font management and shaping for engine text."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ description = "zaroxi-intelligence-safety (auto-generated)"
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

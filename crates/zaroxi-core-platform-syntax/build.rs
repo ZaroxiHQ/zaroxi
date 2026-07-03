@@ -1,41 +1,48 @@
-//! Build script for zaroxi-lang-syntax
+//! Build script for `zaroxi-core-platform-syntax`.
 //!
-//! This build script downloads and compiles Tree-sitter grammars at compile time,
-//! so they are available when the application runs.
+//! Tree-sitter grammar shared libraries are **committed** under
+//! `runtime/treesitter/grammars/<os>-<arch>/` and loaded at runtime by the
+//! `dynamic-loading` feature. This build script therefore does **not** compile
+//! or download grammars.
+//!
+//! An earlier version shelled out to `cargo run --bin download_grammars` from
+//! here, which is unreliable: it nests a `cargo` invocation inside the build
+//! (risking lock contention / recursion) and needs network + a C toolchain at
+//! build time. Grammar preparation is now an explicit, reusable step
+//! (`tooling/scripts/prepare-treesitter.sh`) that both CI and developers run
+//! before the syntax tests.
+//!
+//! If the runtime is missing for the current platform we emit an actionable
+//! warning rather than attempting a fragile in-build install.
 
-use std::process::Command;
+use std::path::PathBuf;
 
 fn main() {
-    // Always rerun if build script changes
     println!("cargo:rerun-if-changed=build.rs");
 
-    // Check if runtime directory already exists
+    // Capture the target triple so the `download_grammars` binary can drive the
+    // `cc` crate correctly when it runs standalone (outside a build script,
+    // where Cargo would otherwise provide TARGET/HOST). This is what makes
+    // grammar compilation MSVC/clang/gcc-aware on every OS.
+    if let Ok(target) = std::env::var("TARGET") {
+        println!("cargo:rustc-env=ZAROXI_BUILD_TARGET={}", target);
+    }
+
     let runtime_dir = get_runtime_dir();
-    if runtime_dir.exists() {
+    if !runtime_dir.exists() {
         println!(
-            "cargo:warning=Runtime directory already exists at {:?}, skipping grammar installation",
+            "cargo:warning=Tree-sitter runtime not found at {:?}. Syntax highlighting and its \
+             integration tests require platform grammars. Prepare them with: \
+             tooling/scripts/prepare-treesitter.sh",
             runtime_dir
         );
-        return;
     }
-
-    println!("cargo:warning=Installing Tree-sitter grammars at compile time...");
-
-    // Run the download_grammars binary to install missing grammars
-    let status = Command::new("cargo")
-        .args(["run", "--bin", "download_grammars", "--", "install"])
-        .status()
-        .expect("Failed to run download_grammars binary");
-
-    if !status.success() {
-        panic!("Grammar installation failed");
-    }
-
-    println!("cargo:warning=Grammar installation complete");
 }
 
-fn get_runtime_dir() -> std::path::PathBuf {
-    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+/// Locate the canonical `runtime/treesitter` directory by walking up from this
+/// crate's manifest directory (matches the runtime resolver in `src/runtime.rs`).
+fn get_runtime_dir() -> PathBuf {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let mut current = manifest_dir.clone();
     loop {
         let candidate = current.join("runtime/treesitter");

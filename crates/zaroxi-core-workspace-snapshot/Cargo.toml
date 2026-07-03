@@ -6,3 +6,6 @@ description = "Snapshot representation for workspace state."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

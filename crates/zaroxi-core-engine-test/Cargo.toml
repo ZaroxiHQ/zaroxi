@@ -6,3 +6,6 @@ description = "Engine testing utilities and harnesses."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

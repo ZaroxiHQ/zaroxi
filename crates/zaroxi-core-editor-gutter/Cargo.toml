@@ -7,3 +7,6 @@ license = "MIT"
 
 [dependencies]
 zaroxi-kernel-math = { path = "../zaroxi-kernel-math" }
+
+[lints]
+workspace = true

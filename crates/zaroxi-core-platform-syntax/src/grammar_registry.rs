@@ -582,18 +582,10 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
     let repo_url = &info.repo_url;
     let revision = &info.revision;
 
-    // Use git clone with --force to overwrite existing directory
+    // Shallow-clone the grammar repo at the pinned revision. The temp dir is
+    // removed above, so no `--force` is needed (and `git clone` has no such flag).
     let status = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            revision,
-            "--force",
-            repo_url,
-            temp_dir.to_str().unwrap(),
-        ])
+        .args(["clone", "--depth", "1", "--branch", revision, repo_url, temp_dir.to_str().unwrap()])
         .status()
         .map_err(|e| format!("Failed to run git clone: {}", e))?;
 
@@ -610,7 +602,10 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
         temp_dir.clone()
     };
 
-    // Compile the grammar
+    // Compile the grammar into a dynamically-loadable shared library using the
+    // platform compiler discovered via the `cc` crate. This is gcc/clang/MSVC
+    // aware and works both inside a Cargo build script and when run standalone
+    // from the `download_grammars` binary (see `compile_grammar_shared_library`).
     let output_lib = if cfg!(windows) {
         grammars_dir.join(format!("tree-sitter-{}.dll", language_id))
     } else if cfg!(target_os = "macos") {
@@ -619,94 +614,11 @@ pub fn download_and_install_grammar(language_id: &str) -> Result<(), String> {
         grammars_dir.join(format!("libtree-sitter-{}.so", language_id))
     };
 
-    // Check if we're in a cargo build environment (TARGET env var is set)
-    let in_cargo_build = std::env::var("TARGET").is_ok();
-
-    if in_cargo_build {
-        // Build the C source files into a shared library using the cc crate
-        let mut build = cc::Build::new();
-        build.opt_level(2);
-        build.cpp(false); // C language, not C++
-
-        for src_file in &info.source_files {
-            let src_path = source_dir.join(src_file);
-            if src_path.exists() {
-                build.file(&src_path);
-            } else {
-                eprintln!("Warning: Source file not found: {}", src_path.display());
-            }
-        }
-
-        // The cc crate outputs to OUT_DIR, we need to find and copy the library
-        let lib_name = format!("tree_sitter_{}", language_id);
-        build.compile(&lib_name);
-
-        // Find the compiled library in OUT_DIR
-        let out_dir = std::env::var("OUT_DIR").unwrap_or_else(|_| "/tmp".to_string());
-        let out_path = std::path::PathBuf::from(&out_dir);
-
-        // The cc crate creates a library with a specific naming pattern
-        let built_lib = if cfg!(windows) {
-            out_path.join(format!("{}.dll", lib_name))
-        } else if cfg!(target_os = "macos") {
-            out_path.join(format!("lib{}.dylib", lib_name))
-        } else {
-            out_path.join(format!("lib{}.so", lib_name))
-        };
-
-        if built_lib.exists() {
-            std::fs::copy(&built_lib, &output_lib)
-                .map_err(|e| format!("Failed to copy library: {}", e))?;
-            eprintln!("Copied grammar library to {}", output_lib.display());
-        } else {
-            // Try to find the library with alternative naming (static library)
-            let alt_lib = if cfg!(windows) {
-                out_path.join(format!("{}.lib", lib_name))
-            } else {
-                out_path.join(format!("lib{}.a", lib_name))
-            };
-
-            if alt_lib.exists() {
-                std::fs::copy(&alt_lib, &output_lib)
-                    .map_err(|e| format!("Failed to copy static library: {}", e))?;
-                eprintln!("Copied static grammar library to {}", output_lib.display());
-            } else {
-                // Clean up temp directory
-                let _ = std::fs::remove_dir_all(&temp_dir);
-                return Err(format!(
-                    "Could not find compiled library for {} in {}",
-                    language_id, out_dir
-                ));
-            }
-        }
-    } else {
-        // Not in cargo build environment, try to use system cc directly
-        eprintln!("DEBUG: Not in cargo build environment, trying system cc for {}", language_id);
-
-        // Build using system cc
-        let mut cc_cmd = std::process::Command::new("cc");
-        cc_cmd.arg("-shared").arg("-fPIC").arg("-O2");
-
-        for src_file in &info.source_files {
-            let src_path = source_dir.join(src_file);
-            if src_path.exists() {
-                cc_cmd.arg(src_path.to_str().unwrap());
-            } else {
-                eprintln!("Warning: Source file not found: {}", src_path.display());
-            }
-        }
-
-        cc_cmd.arg("-o").arg(output_lib.to_str().unwrap());
-
-        let status = cc_cmd.status().map_err(|e| format!("Failed to run system cc: {}", e))?;
-
-        if !status.success() {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(format!("System cc compilation failed for {}", language_id));
-        }
-
-        eprintln!("Copied grammar library to {}", output_lib.display());
+    if let Err(e) = compile_grammar_shared_library(&source_dir, info, language_id, &output_lib) {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err(e);
     }
+    eprintln!("Built grammar library at {}", output_lib.display());
 
     // Copy query files
     let queries_dir = languages_dir.join("queries");
@@ -751,4 +663,124 @@ pub fn install_missing_grammars() -> Vec<String> {
     }
 
     installed
+}
+
+/// Host target triple, captured at build time by `build.rs`
+/// (`cargo:rustc-env=ZAROXI_BUILD_TARGET`). Empty if unavailable. Used to drive
+/// the `cc` crate correctly when compiling grammars outside a Cargo build script.
+fn host_target() -> &'static str {
+    option_env!("ZAROXI_BUILD_TARGET").unwrap_or("")
+}
+
+/// The exported C constructor symbol for a grammar (`tree_sitter_<lang>`), used
+/// to force-export the symbol on MSVC (which does not export DLL symbols by
+/// default). `markdown` ships the inline parser, whose symbol is
+/// `tree_sitter_markdown_inline`.
+fn grammar_export_symbol(language_id: &str) -> String {
+    match language_id {
+        "markdown" => "tree_sitter_markdown_inline".to_string(),
+        other => format!("tree_sitter_{}", other.replace('-', "_")),
+    }
+}
+
+/// Compile a Tree-sitter grammar's C/C++ sources into a dynamically-loadable
+/// shared library at `output_lib`, cross-platform (gcc / clang / MSVC).
+///
+/// The `cc` crate is used to *discover and configure the platform compiler*
+/// (including MSVC's environment on Windows); the shared-library link step is
+/// then driven explicitly with the correct per-toolchain flags. Target/host/
+/// opt-level are set on the builder (not via process env) so this also works
+/// when invoked standalone from the `download_grammars` binary.
+fn compile_grammar_shared_library(
+    source_dir: &std::path::Path,
+    info: &GrammarInfo,
+    language_id: &str,
+    output_lib: &std::path::Path,
+) -> Result<(), String> {
+    // Collect the source files that actually exist.
+    let mut sources: Vec<std::path::PathBuf> = Vec::new();
+    for src in &info.source_files {
+        let p = source_dir.join(src);
+        if p.exists() {
+            sources.push(p);
+        } else {
+            eprintln!("Warning: source file not found: {}", p.display());
+        }
+    }
+    if sources.is_empty() {
+        return Err(format!("no source files found for {}", language_id));
+    }
+
+    // `parser.c` includes `"tree_sitter/parser.h"` from its own directory, so add
+    // each source file's parent as an include path.
+    let mut includes: Vec<std::path::PathBuf> = Vec::new();
+    for s in &sources {
+        if let Some(parent) = s.parent() {
+            let parent = parent.to_path_buf();
+            if !includes.contains(&parent) {
+                includes.push(parent);
+            }
+        }
+    }
+
+    // Some grammars ship a C++ external scanner.
+    let use_cpp = info.scanner_lang.as_deref() == Some("cpp")
+        || sources.iter().any(|s| {
+            matches!(s.extension().and_then(|e| e.to_str()), Some("cc") | Some("cpp") | Some("cxx"))
+        });
+
+    // Discover the platform compiler. Setting target/host/opt-level on the
+    // builder avoids depending on Cargo-provided env when run standalone.
+    let mut build = cc::Build::new();
+    build.cpp(use_cpp).opt_level(2).warnings(false).cargo_metadata(false);
+    let target = host_target();
+    if !target.is_empty() {
+        build.target(target).host(target);
+    }
+    for inc in &includes {
+        build.include(inc);
+    }
+    let tool = build
+        .try_get_compiler()
+        .map_err(|e| format!("could not locate a C/C++ compiler for {}: {}", language_id, e))?;
+
+    if let Some(parent) = output_lib.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+
+    let mut cmd = tool.to_command();
+    if tool.is_like_msvc() {
+        // `cl /LD` produces a DLL; force-export the grammar constructor so the
+        // dynamic loader can resolve it.
+        cmd.arg("/nologo").arg("/O2").arg("/LD");
+        for inc in &includes {
+            cmd.arg(format!("/I{}", inc.display()));
+        }
+        for s in &sources {
+            cmd.arg(s);
+        }
+        cmd.arg(format!("/Fe:{}", output_lib.display()));
+        cmd.arg("/link").arg(format!("/EXPORT:{}", grammar_export_symbol(language_id)));
+    } else {
+        // gcc (Linux .so) / clang (macOS .dylib).
+        cmd.arg("-shared").arg("-fPIC").arg("-O2");
+        for inc in &includes {
+            cmd.arg("-I").arg(inc);
+        }
+        for s in &sources {
+            cmd.arg(s);
+        }
+        cmd.arg("-o").arg(output_lib);
+    }
+
+    let status = cmd
+        .status()
+        .map_err(|e| format!("failed to invoke compiler for {}: {}", language_id, e))?;
+    if !status.success() {
+        return Err(format!("compilation failed for {} (exit {:?})", language_id, status.code()));
+    }
+    if !output_lib.exists() {
+        return Err(format!("compiler did not produce {}", output_lib.display()));
+    }
+    Ok(())
 }

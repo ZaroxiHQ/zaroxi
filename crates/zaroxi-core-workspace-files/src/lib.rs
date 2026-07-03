@@ -1,3 +1,12 @@
+// SANCTIONED UNSAFE EXCEPTION (1 of 2 in the workspace; the other is
+// `zaroxi-core-platform-syntax`). The repo-wide policy is
+// `unsafe_code = "forbid"` (see `[workspace.lints]` in the root Cargo.toml,
+// applied to every other crate via `[lints] workspace = true`). This crate is
+// intentionally exempt because memory-mapping files via `memmap2` is an
+// inherently unsafe OS operation. All `unsafe` here is confined to
+// `file_loader.rs` and carries `// SAFETY:` notes.
+#![allow(unsafe_code)]
+
 pub mod file_loader;
 pub mod metadata;
 pub mod workspace;

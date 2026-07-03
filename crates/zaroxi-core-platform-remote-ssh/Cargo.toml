@@ -6,3 +6,6 @@ description = "Remote SSH container adapters."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

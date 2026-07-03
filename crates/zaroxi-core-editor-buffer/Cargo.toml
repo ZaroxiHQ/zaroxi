@@ -10,3 +10,6 @@ license = "MIT"
 # Serde is required by src/ports.rs for Serialize/Deserialize derives.
 serde = { workspace = true }
 zaroxi-kernel-id = { workspace = true }
+
+[lints]
+workspace = true

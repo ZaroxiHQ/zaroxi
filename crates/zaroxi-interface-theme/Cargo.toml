@@ -9,3 +9,6 @@ license = "MIT"
 # Serialization helpers used by theme types; use the workspace pins so versions remain centralized.
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

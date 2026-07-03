@@ -6,3 +6,6 @@ description = "UI action dispatch and mapping."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

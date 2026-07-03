@@ -6,3 +6,6 @@ description = "Editor layout and display helpers (non-UI)."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

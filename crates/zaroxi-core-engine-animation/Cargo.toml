@@ -6,3 +6,6 @@ description = "Animation primitives for the engine."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

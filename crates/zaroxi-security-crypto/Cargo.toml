@@ -6,3 +6,6 @@ description = "Cryptographic utilities for security layer."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

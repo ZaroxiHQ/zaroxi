@@ -6,3 +6,6 @@ description = "CRDT/OT integration layer for real-time collaboration."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

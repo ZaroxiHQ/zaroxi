@@ -60,5 +60,11 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      # Tree-sitter grammars for linux-x86_64 are committed, so this is a fast
+      # no-op here; it stays for parity with the other OS jobs and self-heals if
+      # a grammar is missing. It also exports ZAROXI_TREESITTER_RUNTIME_DIR.
+      - name: Prepare Tree-sitter grammars
+        run: bash tooling/scripts/prepare-treesitter.sh
+
       - name: Test
         run: cargo test --workspace

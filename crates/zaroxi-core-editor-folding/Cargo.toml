@@ -6,3 +6,6 @@ description = "Code folding algorithms and data structures."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ description = "Workspace permission model and checks."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

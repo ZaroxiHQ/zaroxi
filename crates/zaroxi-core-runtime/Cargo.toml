@@ -11,3 +11,6 @@ zaroxi-kernel-core = { path = "../zaroxi-kernel-core" }
 # Workspace-owned deps (use workspace pins when available)
 anyhow = { workspace = true }
 winit = { workspace = true }
+
+[lints]
+workspace = true

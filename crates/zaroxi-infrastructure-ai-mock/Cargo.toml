@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 tokio = { workspace = true }
 zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+
+[lints]
+workspace = true

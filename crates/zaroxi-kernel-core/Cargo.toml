@@ -13,3 +13,6 @@ zaroxi-kernel-errors = { path = "../zaroxi-kernel-errors" }
 # Use workspace = true so versions/features are centrally controlled.
 serde = { workspace = true }
 uuid = { workspace = true }
+
+[lints]
+workspace = true

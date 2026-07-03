@@ -1,5 +1,14 @@
 #![deny(missing_docs)]
-//! Syntax layer for Neote IDE.
+// SANCTIONED UNSAFE EXCEPTION (1 of 2 in the workspace; the other is
+// `zaroxi-core-workspace-files`). The repo-wide policy is
+// `unsafe_code = "forbid"` (see `[workspace.lints]` in the root Cargo.toml,
+// applied to every other crate via `[lints] workspace = true`). This crate is
+// intentionally exempt because dynamically loading Tree-sitter grammar shared
+// libraries via `libloading` is an inherently unsafe FFI operation. All `unsafe`
+// here is confined to `dynamic_loader.rs` / `runtime.rs` and carries `// SAFETY:`
+// notes.
+#![allow(unsafe_code)]
+//! Syntax layer for Zaroxi Studio.
 //!
 //! This crate provides Tree-sitter-based syntax parsing, highlighting,
 //! and language support for the editor. It's designed to be:

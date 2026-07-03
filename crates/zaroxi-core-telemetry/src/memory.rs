@@ -38,6 +38,10 @@ pub const DEFAULT_SAMPLE_FRAMES: u64 = 300;
 /// Linux reports `statm` resident size in pages; standard page size on the
 /// supported targets is 4 KiB. Reading `sysconf(_SC_PAGESIZE)` would require
 /// `libc`/`unsafe`, which the workspace forbids, so this constant is assumed.
+///
+/// Only referenced by the Linux `read_rss_bytes` implementation, so it is gated
+/// to that target to avoid a `dead_code` warning on macOS/Windows.
+#[cfg(target_os = "linux")]
 const PAGE_SIZE_BYTES: u64 = 4096;
 
 /// Coarse memory-pressure classification. Ordered `Normal < Elevated < Critical`
@@ -104,6 +108,16 @@ pub fn read_vsz_bytes() -> Option<u64> {
     None
 }
 
+/// Read current process virtual memory size (VSZ) in bytes.
+///
+/// VSZ is the total virtual address space mapped by the process (code, data,
+/// stacks, mapped files, and reserved-but-unbacked ranges), as opposed to RSS
+/// which counts only resident physical pages. On Linux it is parsed from the
+/// `VmSize:` field of `/proc/self/status` and returned in bytes.
+///
+/// This is the non-Linux fallback: there is no portable, dependency-free
+/// (no `libc`/`unsafe`) source for VSZ on macOS/Windows, so it always returns
+/// `None`.
 #[cfg(not(target_os = "linux"))]
 pub fn read_vsz_bytes() -> Option<u64> {
     None

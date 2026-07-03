@@ -6,3 +6,6 @@ description = "Minimap rendering data model."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ description = "Remote container integration adapters."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

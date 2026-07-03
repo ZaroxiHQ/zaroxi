@@ -6,3 +6,6 @@ description = "zaroxi-infrastructure-ssh (auto-generated)"
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

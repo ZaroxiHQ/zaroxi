@@ -6,3 +6,6 @@ description = "Editor command abstractions."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true

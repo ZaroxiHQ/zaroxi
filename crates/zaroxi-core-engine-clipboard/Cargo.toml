@@ -7,3 +7,6 @@ license = "MIT"
 
 [dependencies]
 arboard = "3.6.1"
+
+[lints]
+workspace = true

@@ -6,3 +6,6 @@ description = "Focus and keyboard focus management for engine views."
 license = "MIT"
 
 [dependencies]
+
+[lints]
+workspace = true
