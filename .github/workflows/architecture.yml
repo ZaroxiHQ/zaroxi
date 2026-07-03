@@ -1,0 +1,62 @@
+name: Architecture
+
+# Cross-cutting, OS-agnostic architecture & naming gates. Per-OS build/test/lint
+# live in the Linux / macOS / Windows workflows; dependency security lives in the
+# Security Audit workflow.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  # Hard architecture gates — these must pass.
+  gates:
+    name: naming + cycles + layering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Crate naming conventions
+        run: python3 .github/scripts/check_crate_naming.py
+
+      - name: Circular dependency detection
+        run: python3 .github/scripts/check_circular_deps.py
+
+      - name: Family-aware architecture check
+        run: bash scripts/architecture_check.sh
+
+  # Advisory, non-blocking reports (layer matrix + crate size).
+  reports:
+    name: advisory reports
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Layer dependency report (advisory)
+        run: |
+          python3 .github/scripts/check_layer_deps.py --report layer-deps-report.json \
+            || echo "layer-deps reported issues (advisory, non-blocking)"
+
+      - name: Upload layer-deps report
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer-deps-report
+          path: layer-deps-report.json
+
+      - name: Crate size analysis (advisory)
+        run: python3 .github/scripts/check_crate_size.py || echo "crate-size advisory (non-blocking)"

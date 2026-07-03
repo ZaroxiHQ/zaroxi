@@ -14,8 +14,10 @@ zaroxi-core-engine-view = { workspace = true }
 # convert plans into tiny UI-facing view models.
 zaroxi-core-engine-render = { workspace = true }
 
-[dev-dependencies]
-# Tests in this crate import the desktop presenter/projections for integration-style
-# checks. Add a dev-dependency so test code can reference the desktop crate without
-# introducing an application -> interface dependency in normal builds.
-zaroxi-interface-desktop = { workspace = true }
+# NOTE: This crate intentionally does NOT depend on zaroxi-interface-desktop, in
+# either [dependencies] or [dev-dependencies]. interface-app defines the lower,
+# implementation-independent view-model contracts; interface-desktop is the
+# implementation that depends on interface-app (contracts -> implementation).
+# The cross-crate interop/translation tests that need both live in
+# zaroxi-interface-desktop, which already depends on this crate. This keeps the
+# two interface crates from mutually depending on each other.

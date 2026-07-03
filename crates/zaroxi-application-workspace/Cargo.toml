@@ -31,6 +31,10 @@ zaroxi-application-ai = { path = "../zaroxi-application-ai" }
 # Core engine UI (ShellWorkContent, ContentView) for workspace content assembly.
 zaroxi-core-engine-ui = { path = "../zaroxi-core-engine-ui" }
 
-[dev-dependencies]
-zaroxi-infrastructure-memory = { path = "../zaroxi-infrastructure-memory" }
-zaroxi-infrastructure-ai-mock = { path = "../zaroxi-infrastructure-ai-mock" }
+# NOTE: This application crate intentionally has no dependency on infrastructure
+# adapter crates. Infrastructure adapters (e.g. zaroxi-infrastructure-memory,
+# zaroxi-infrastructure-ai-mock) implement the application-defined ports and
+# therefore depend on this crate — not the other way around. Integration tests
+# that wire concrete infra adapters live at the composition root
+# (apps/zaroxi-desktop-harness) so the adapter -> port direction stays one-way
+# and no dependency cycle is introduced.

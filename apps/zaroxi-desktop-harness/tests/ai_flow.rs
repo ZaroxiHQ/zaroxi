@@ -1,3 +1,9 @@
+//! Composition-root integration test: wires the application orchestrator with
+//! the concrete in-memory infrastructure adapters (history/durability) and the
+//! mock AI client. Relocated here from `zaroxi-application-workspace` so the
+//! adapter -> port dependency direction stays one-way (infrastructure depends
+//! on application, never the reverse) and no dependency cycle is introduced.
+
 use std::path::PathBuf;
 
 use zaroxi_application_workspace::in_memory_adapters;

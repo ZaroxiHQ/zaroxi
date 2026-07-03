@@ -7,14 +7,32 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   audit:
+    name: cargo-deny + cargo-audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: cargo deny check
+        run: cargo deny check
+
       - name: Install cargo-audit
-        run: cargo install cargo-audit
-      - name: Audit dependencies
+        run: cargo install cargo-audit --locked
+
+      # Uses the repo-local .cargo/audit.toml policy for justified, documented
+      # ignores of transitive advisories with no available upstream fix.
+      - name: cargo audit
         run: cargo audit

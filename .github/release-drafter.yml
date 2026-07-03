@@ -1,44 +1,137 @@
 name-template: 'v$RESOLVED_VERSION'
 tag-template: 'v$RESOLVED_VERSION'
+
+# ── Change line format ───────────────────────────────────────────────────────
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+change-title-escapes: '\<*_&'      # keep Markdown/mention safe
+replacers:
+  # Strip the conventional-commit prefix from the PR title in the notes so the
+  # category already conveys the type (e.g. "feat(ui): add tabs" -> "add tabs").
+  - search: '/^(feat|fix|perf|refactor|docs|test|build|ci|chore|style|security|deps)(\([^)]*\))?!?:\s*/i'
+    replace: ''
+
+# ── Categories (grouped, ordered, emoji-labelled) ────────────────────────────
 categories:
+  - title: '💥 Breaking Changes'
+    labels: ['breaking', 'breaking-change', 'major']
   - title: '🚀 Features'
-    labels:
-      - 'feature'
-      - 'enhancement'
+    labels: ['feature', 'enhancement', 'feat']
   - title: '🐛 Bug Fixes'
-    labels:
-      - 'fix'
-      - 'bugfix'
-      - 'bug'
-  - title: '🧰 Maintenance'
-    labels:
-      - 'chore'
-      - 'refactor'
-      - 'maintenance'
+    labels: ['fix', 'bug', 'bugfix']
+  - title: '⚡ Performance'
+    labels: ['performance', 'perf']
+  - title: '♻️ Refactoring'
+    labels: ['refactor', 'refactoring']
+  - title: '🔒 Security'
+    labels: ['security']
   - title: '📚 Documentation'
-    labels:
-      - 'documentation'
-      - 'docs'
-change-template: '- (#$NUMBER) $TITLE'
-change-title-escapes: '\<*_&'
+    labels: ['documentation', 'docs']
+  - title: '✅ Testing'
+    labels: ['test', 'testing', 'tests']
+  - title: '👷 CI & Build'
+    labels: ['ci', 'build', 'ci/cd']
+  - title: '⬆️ Dependencies'
+    labels: ['dependencies', 'deps']
+  - title: '🧰 Maintenance'
+    labels: ['chore', 'maintenance']
+
+# PRs labelled with any of these never appear in the notes.
+exclude-labels:
+  - 'skip-changelog'
+  - 'no-changelog'
+  - 'wontfix'
+  - 'invalid'
+  - 'duplicate'
+
+# ── Semantic version resolution (from PR labels) ─────────────────────────────
 version-resolver:
   major:
-    labels:
-      - 'major'
+    labels: ['major', 'breaking', 'breaking-change']
   minor:
-    labels:
-      - 'minor'
+    labels: ['minor', 'feature', 'enhancement', 'feat']
   patch:
     labels:
       - 'patch'
+      - 'fix'
+      - 'bug'
+      - 'performance'
+      - 'refactor'
+      - 'documentation'
+      - 'docs'
+      - 'test'
+      - 'ci'
+      - 'build'
+      - 'dependencies'
+      - 'security'
+      - 'chore'
   default: patch
-template: |
+
+# ── Automatic PR labelling (drives the categories above) ─────────────────────
+# Matches Conventional-Commit PR titles, branch names, and touched paths so
+# contributors get sensible labels without manual triage.
+autolabeler:
+  - label: 'breaking'
+    title: ['/^\w+(\([^)]*\))?!:\s/']
+  - label: 'feature'
+    title: ['/^feat(\([^)]*\))?!?:/i']
+    branch: ['/^(feat|feature)[\/-].+/i']
+  - label: 'fix'
+    title: ['/^fix(\([^)]*\))?!?:/i']
+    branch: ['/^(fix|bugfix|hotfix)[\/-].+/i']
+  - label: 'performance'
+    title: ['/^perf(\([^)]*\))?!?:/i']
+  - label: 'refactor'
+    title: ['/^refactor(\([^)]*\))?!?:/i']
+  - label: 'documentation'
+    title: ['/^docs(\([^)]*\))?!?:/i']
+    files: ['**/*.md', 'docs/**']
+  - label: 'test'
+    title: ['/^test(\([^)]*\))?!?:/i']
+    files: ['**/tests/**', '**/*_test.rs', '**/test_*.rs']
+  - label: 'ci'
+    title: ['/^(ci|build)(\([^)]*\))?!?:/i']
+    files: ['.github/**', 'scripts/**', 'tooling/**', 'deny.toml', '.cargo/**']
+  - label: 'dependencies'
+    title: ['/^(deps|chore\(deps\)|build\(deps\))/i']
+  - label: 'security'
+    title: ['/^security(\([^)]*\))?!?:/i']
+  - label: 'chore'
+    title: ['/^chore(\([^)]*\))?!?:/i']
+
+# ── Release-notes template ───────────────────────────────────────────────────
+category-template: '### $TITLE'
+no-changes-template: '- No user-facing changes in this release.'
+
+header: |
   ## 🎉 Zaroxi Studio $RESOLVED_VERSION
+
+  Zaroxi Studio is a crate-first, pure-Rust editor / IDE runtime
+  (winit · wgpu · vello · cosmic-text). This release rolls up everything merged
+  to `main` since the previous tag.
+
+template: |
+  ## What's changed
 
   $CHANGES
 
+footer: |
+
+  ## 📦 Installation
+
+  Prebuilt binaries for **Linux**, **macOS**, and **Windows** are attached to
+  this release as assets. Download the archive for your platform, extract it, and
+  run the `gui_shell` executable (keep the bundled `assets/fonts/` next to it).
+
+  From source:
+
+  ```bash
+  git clone https://github.com/$OWNER/$REPOSITORY.git
+  cd $REPOSITORY
+  cargo run -p zaroxi-interface-desktop --bin gui_shell --release
+  ```
+
+  ## 🙌 Contributors
+
+  Thanks to everyone who contributed to this release: $CONTRIBUTORS
+
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
-
-  ### 👥 Contributors
-
-  $CONTRIBUTORS

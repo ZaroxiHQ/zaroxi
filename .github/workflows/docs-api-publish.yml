@@ -12,9 +12,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/gh-install-rust@v1
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Native windowing/graphics dependencies required to compile the pure-Rust
+      # winit/wgpu stack while generating API docs.
+      - name: Install Linux windowing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev \
+            libwayland-dev
 
       - name: Cache cargo registry
         uses: actions/cache@v4

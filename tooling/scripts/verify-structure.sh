@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
-set -e
+#
+# verify-structure.sh — sanity-check the Zaroxi (pure-Rust) monorepo layout.
+#
+# Zaroxi is a crate-first, pure-Rust editor/IDE runtime (winit + wgpu + vello +
+# cosmic-text). There is NO Tauri, no web frontend, and no separate daemon
+# services — every layer is a Rust crate under `crates/`, composed by the
+# desktop harness under `apps/`.
+#
+# This script verifies the on-disk structure matches that architecture and that
+# the workspace compiles. It is intended for contributors setting up the repo.
+
+set -euo pipefail
 
 echo "Verifying Zaroxi repository structure..."
 
-# Check required directories exist
+# ── Required directories ─────────────────────────────────────────────────────
+# Layered Rust crates live in crates/; the desktop harness (composition root)
+# lives in apps/; bundled assets (fonts) in assets/; docs, tests and CI tooling
+# in their respective folders.
 required_dirs=(
-  "apps/desktop"
-  "apps/desktop/frontend"
-  "apps/desktop/src-tauri"
-  "crates/domain"
-  "crates/infrastructure"
-  "crates/language"
-  "crates/operations"
-  "crates/ai"
-  "crates/theme"
-  "services/ai-daemon"
-  "services/workspace-daemon"
-  "tooling/config/rust"
+  "crates"
+  "apps"
+  "apps/zaroxi-desktop-harness"
+  "assets/fonts"
+  "docs"
+  "tests"
   "tooling/scripts"
-  "docs/architecture"
-  "docs/contributing"
-  "tests/integration"
+  "scripts"
+  ".github/scripts"
 )
 
 missing_dirs=()
@@ -35,21 +42,16 @@ if [ ${#missing_dirs[@]} -gt 0 ]; then
   for dir in "${missing_dirs[@]}"; do
     echo "  - $dir"
   done
-  echo ""
-  echo "Run ./tooling/scripts/setup-new-structure.sh to create missing directories"
   exit 1
 fi
 
 echo "✓ Directory structure looks good"
 
-# Check for required files
+# ── Required files ───────────────────────────────────────────────────────────
 required_files=(
   "Cargo.toml"
-  "apps/desktop/package.json"
-  "apps/desktop/src-tauri/Cargo.toml"
-  "crates/theme/Cargo.toml"
-  "services/ai-daemon/Cargo.toml"
-  "services/workspace-daemon/Cargo.toml"
+  "apps/zaroxi-desktop-harness/Cargo.toml"
+  "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf"
 )
 
 missing_files=()
@@ -64,14 +66,50 @@ if [ ${#missing_files[@]} -gt 0 ]; then
   for file in "${missing_files[@]}"; do
     echo "  - $file"
   done
+  if [ ! -f "assets/fonts/JetBrainsMonoNerdFont-Regular.ttf" ]; then
+    echo ""
+    echo "Fonts are missing. Run ./scripts/download-fonts.sh to fetch them."
+  fi
   exit 1
 fi
 
 echo "✓ Required files exist"
 
-# Try to compile
+# ── Architecture layers ──────────────────────────────────────────────────────
+# Every layer prefix in the strict dependency chain should be represented by at
+# least one crate under crates/ (Kernel → Core → Domain → Application →
+# Interface, plus Infrastructure / Intelligence / Security families).
+required_layers=(
+  "zaroxi-kernel-"
+  "zaroxi-core-"
+  "zaroxi-domain-"
+  "zaroxi-application-"
+  "zaroxi-interface-"
+  "zaroxi-infrastructure-"
+  "zaroxi-intelligence-"
+  "zaroxi-security-"
+)
+
+missing_layers=()
+for layer in "${required_layers[@]}"; do
+  if ! ls -d crates/"${layer}"* >/dev/null 2>&1; then
+    missing_layers+=("$layer")
+  fi
+done
+
+if [ ${#missing_layers[@]} -gt 0 ]; then
+  echo "Missing architecture layers under crates/:"
+  for layer in "${missing_layers[@]}"; do
+    echo "  - ${layer}*"
+  done
+  exit 1
+fi
+
+echo "✓ All architecture layers are present"
+
+# ── Compilation ──────────────────────────────────────────────────────────────
 echo "Checking compilation..."
-if cargo check --workspace --quiet 2>/dev/null; then
+if cargo check --workspace --quiet; then
   echo "✓ Workspace compiles successfully"
 else
   echo "✗ Compilation failed. Run 'cargo check --workspace' for details"
@@ -82,7 +120,7 @@ echo ""
 echo "✅ Repository structure verification passed!"
 echo ""
 echo "Next steps:"
-echo "1. Move old crates to new structure: ./tooling/scripts/migrate-old-crates.sh"
-echo "2. Update import paths in Rust code if needed"
-echo "3. Run tests: cargo test --workspace"
-echo "4. Start desktop app: cd apps/desktop && npm run tauri dev"
+echo "1. Fetch bundled fonts (if needed): ./scripts/download-fonts.sh"
+echo "2. Run the tests:                    cargo test --workspace"
+echo "3. Launch the desktop GUI:           cargo run -p zaroxi-interface-desktop --bin gui_shell"
+echo "4. Or run the composition harness:   cargo run -p zaroxi-desktop-harness"

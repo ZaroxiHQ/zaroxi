@@ -1,0 +1,127 @@
+name: Release
+
+# Builds cross-platform binaries and attaches them to the GitHub Release.
+#
+# Flow: `Release Drafter` maintains a DRAFT release from merged PRs. When a
+# maintainer publishes that draft (creating the vX.Y.Z tag), this workflow runs,
+# builds the desktop GUI for Linux/macOS/Windows, and uploads the archives as
+# release assets. It can also be run manually against an existing tag.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build & attach assets to (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Binary + crate that produce the shippable desktop shell.
+  BIN_NAME: gui_shell
+  BIN_CRATE: zaroxi-interface-desktop
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write   # upload assets to the release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-arm64
+          - os: windows-latest
+            target: windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux windowing dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev \
+            libwayland-dev
+
+      - name: Cache cargo + build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "No tag could be resolved" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Building release assets for tag: $TAG"
+
+      # The full GPU renderer is compiled in by default: zaroxi-interface-desktop
+      # depends on zaroxi-core-engine-render with `features = ["full_renderer"]`
+      # unconditionally, so the shipped binary is GPU-capable. There is no
+      # separate `full_renderer` feature on interface-desktop — do NOT pass one.
+      - name: Build release binary (GPU renderer included)
+        run: cargo build --release -p "${{ env.BIN_CRATE }}" --bin "${{ env.BIN_NAME }}"
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="zaroxi-${{ steps.tag.outputs.tag }}-${{ matrix.target }}"
+          mkdir -p "dist/$STAGE"
+          cp "target/release/${BIN_NAME}" "dist/$STAGE/"
+          cp -r assets "dist/$STAGE/assets"
+          cp LICENSE README.md "dist/$STAGE/" 2>/dev/null || true
+          tar -czf "dist/${STAGE}.tar.gz" -C dist "$STAGE"
+          echo "ASSET_PATH=dist/${STAGE}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stage = "zaroxi-${{ steps.tag.outputs.tag }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$stage" | Out-Null
+          Copy-Item "target/release/$env:BIN_NAME.exe" "dist/$stage/"
+          Copy-Item -Recurse "assets" "dist/$stage/assets"
+          if (Test-Path "LICENSE")   { Copy-Item "LICENSE" "dist/$stage/" }
+          if (Test-Path "README.md") { Copy-Item "README.md" "dist/$stage/" }
+          Compress-Archive -Path "dist/$stage/*" -DestinationPath "dist/$stage.zip" -Force
+          "ASSET_PATH=dist/$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zaroxi-${{ matrix.target }}
+          path: ${{ env.ASSET_PATH }}
+          if-no-files-found: error
+
+      - name: Attach archive to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" "$ASSET_PATH" --clobber

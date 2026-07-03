@@ -1,0 +1,33 @@
+name: Labels
+
+# Keeps the repository's labels reconciled with .github/labels.yml so the
+# Release Drafter categories, autolabeler and Dependabot always have the labels
+# they reference.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/labels.yml'
+      - '.github/workflows/labels.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync repository labels
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync labels from .github/labels.yml
+        uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          yaml-file: .github/labels.yml
+          # Do not delete labels that aren't in the file (avoids nuking labels
+          # created by GitHub or other integrations). Flip to true for a strict
+          # single-source-of-truth policy.
+          skip-delete: true

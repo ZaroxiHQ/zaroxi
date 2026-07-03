@@ -2,17 +2,42 @@
 """
 check_crate_naming.py - Validate crate naming conventions for the Zaroxi workspace.
 
-Rules:
-- All crate names must start with "zaroxi-".
-- Pattern: zaroxi-{layer}-{sublayer?}-{concern}
-  - Valid layers: kernel, core, domain, application, interface, intelligence, security, infrastructure
-  - For "core" crates a sublayer is required and must be one of the allowed core sublayers
-  - For non-core crates sublayer must be omitted (concern may contain additional dashes)
+Scope (what this checker governs)
+---------------------------------
+The strict layered naming policy applies to *architecture layer crates*, which
+live under `crates/`. Other packages in the repository serve different roles and
+are NOT subject to the layer/sublayer naming rules:
+
+- `apps/`   : composition roots / binaries (harness, daemons). They are only
+              required to carry the `zaroxi-` project prefix; they intentionally
+              do not encode an architecture layer in their name (e.g.
+              `zaroxi-desktop-harness`).
+- `tools/`  : developer tooling / build helpers (not shippable architecture
+              crates). Exempt from the naming policy entirely.
+- `docs/`   : documentation. Exempt entirely.
+
+This scoping matches the authoritative workspace policy in the root Cargo.toml
+(`[workspace.metadata.zaroxi]`) and the family model used by
+`scripts/architecture_check.sh`, which already treats apps/ as composition roots.
+
+Rules for `crates/` (architecture layer crates)
+-----------------------------------------------
+- Name must start with "zaroxi-".
+- Pattern: zaroxi-{layer}-{...}
+  - Valid layers: kernel, core, domain, application, interface, intelligence,
+    security, infrastructure.
+  - `core` crates come in two intentional shapes that both exist in this repo:
+      1. Grouped subsystem:  zaroxi-core-{sublayer}-{concern}
+         where {sublayer} is a grouping subsystem that owns many crates and
+         therefore REQUIRES a concern suffix (e.g. zaroxi-core-editor-buffer).
+      2. Flat concern:       zaroxi-core-{concern}
+         where {concern} is a single top-level core concern that is its own
+         crate (e.g. zaroxi-core-event, zaroxi-core-io).
+  - For non-core layers the remainder is the concern (may contain dashes).
 - Duplicate concern names within the same (layer, sublayer) are flagged.
 
-Outputs clear violations and exits with code 1 on any violation.
-
 No external deps (stdlib only). Uses tomllib (Python 3.12+).
+Outputs clear violations and exits with code 1 on any violation.
 """
 
 from __future__ import annotations
@@ -37,12 +62,20 @@ VALID_LAYERS = {
     "infrastructure",
 }
 
-# Valid core sublayers as requested
-VALID_CORE_SUBLAYERS = {
+# Grouping core subsystems: each owns many crates, so a concern suffix is
+# REQUIRED (zaroxi-core-{sublayer}-{concern}).
+GROUPING_CORE_SUBLAYERS = {
     "editor",
     "engine",
     "platform",
     "workspace",
+    "plugin",
+}
+
+# Flat top-level core concerns: each is its own single crate
+# (zaroxi-core-{concern}), with no further sublayer grouping.
+FLAT_CORE_CONCERNS = {
+    "commands",
     "event",
     "input",
     "io",
@@ -53,9 +86,8 @@ VALID_CORE_SUBLAYERS = {
     "task",
     "telemetry",
     "threading",
-    "commands",
-    "plugin",
 }
+
 
 @dataclass
 class NamingViolation:
@@ -75,6 +107,24 @@ def find_manifests(root: Path) -> List[Path]:
     return sorted(manifests)
 
 
+def category_for(manifest: Path) -> str:
+    """Classify a manifest by its top-level directory relative to the repo root.
+
+    Returns one of: "crates" (architecture layer crate, full rules),
+    "apps" (composition root, prefix-only rule), or "skip" (tools/docs/other).
+    """
+    try:
+        rel = manifest.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return "skip"
+    top = rel.parts[0] if rel.parts else ""
+    if top == "crates":
+        return "crates"
+    if top == "apps":
+        return "apps"
+    return "skip"
+
+
 def load_package_name(manifest: Path) -> Optional[str]:
     try:
         with manifest.open("rb") as f:
@@ -91,6 +141,12 @@ def analyze() -> Tuple[List[NamingViolation], Dict[Tuple[str, Optional[str]], Se
     seen: Dict[Tuple[str, Optional[str]], Set[str]] = {}
 
     for m in manifests:
+        category = category_for(m)
+        if category == "skip":
+            # tools/, docs/ and any non-architecture packages are not governed
+            # by the layered naming policy.
+            continue
+
         name = load_package_name(m)
         if not name:
             violations.append(NamingViolation(manifest=m, crate=None, message="Missing or malformed [package].name"))
@@ -100,6 +156,12 @@ def analyze() -> Tuple[List[NamingViolation], Dict[Tuple[str, Optional[str]], Se
             violations.append(NamingViolation(manifest=m, crate=name, message="Crate name must start with 'zaroxi-'"))
             continue
 
+        if category == "apps":
+            # Composition roots (harness/daemons) only need the project prefix;
+            # they intentionally do not encode an architecture layer.
+            continue
+
+        # From here on: architecture layer crates under crates/.
         parts = name.split("-")
         # parts: ["zaroxi", layer, ...rest]
         if len(parts) < 3:
@@ -112,21 +174,38 @@ def analyze() -> Tuple[List[NamingViolation], Dict[Tuple[str, Optional[str]], Se
             continue
 
         if layer == "core":
-            # core crates must have a sublayer and a concern
-            if len(rest) < 2:
-                violations.append(NamingViolation(manifest=m, crate=name, message="Core crates must include a sublayer and concern: zaroxi-core-{sublayer}-{concern}"))
+            head = rest[0]
+            if head in GROUPING_CORE_SUBLAYERS:
+                # Grouped subsystem requires a concern suffix.
+                concern = "-".join(rest[1:])
+                if not concern:
+                    violations.append(NamingViolation(
+                        manifest=m,
+                        crate=name,
+                        message=(f"Grouped core subsystem '{head}' requires a concern: "
+                                 f"zaroxi-core-{head}-{{concern}}"),
+                    ))
+                    continue
+                key: Tuple[str, Optional[str]] = ("core", head)
+            elif len(rest) == 1 and head in FLAT_CORE_CONCERNS:
+                # Flat top-level core concern crate.
+                concern = head
+                key = ("core", None)
+            else:
+                violations.append(NamingViolation(
+                    manifest=m,
+                    crate=name,
+                    message=(
+                        "Unrecognized core crate name. Use a grouped subsystem "
+                        f"(one of {', '.join(sorted(GROUPING_CORE_SUBLAYERS))}) with a concern, "
+                        f"or a flat core concern (one of {', '.join(sorted(FLAT_CORE_CONCERNS))})."
+                    ),
+                ))
                 continue
-            sublayer = rest[0]
-            concern = "-".join(rest[1:])
-            if sublayer not in VALID_CORE_SUBLAYERS:
-                violations.append(NamingViolation(manifest=m, crate=name, message=f"Invalid core sublayer '{sublayer}'. Valid core sublayers: {', '.join(sorted(VALID_CORE_SUBLAYERS))}"))
-                continue
-            key = ("core", sublayer)
         else:
             # non-core: rest is the concern; sublayer must not be present as a separate required token.
-            sublayer = None
             concern = "-".join(rest)
-            key = (layer, sublayer)
+            key = (layer, None)
 
         # ensure concern is non-empty
         if not concern or concern.strip() == "":

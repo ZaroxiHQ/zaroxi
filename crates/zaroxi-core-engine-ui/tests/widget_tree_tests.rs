@@ -100,9 +100,17 @@ mod tests {
             tree.widgets.iter().filter(|w| matches!(w, ShellWidget::TabItem { .. })).collect();
         assert!(tabs.len() >= 3, "expected >=3 tabs, got {}", tabs.len());
 
-        if let ShellWidget::TabItem { state, .. } = tabs[0] {
-            assert_eq!(*state, InteractionState::Selected, "first tab must be selected");
+        // Active vs inactive tabs are distinguished by the accent strip (and the
+        // active-background fill), not by `InteractionState` — the `state` field
+        // tracks hover/press/focus only. This mirrors `tab_widget_renders_active_state`.
+        if let ShellWidget::TabItem { accent_strip, .. } = tabs[0] {
+            assert!(accent_strip.is_some(), "first (active) tab must have an accent strip");
         }
+        let inactive_tabs = tabs
+            .iter()
+            .filter(|w| matches!(w, ShellWidget::TabItem { accent_strip: None, .. }))
+            .count();
+        assert!(inactive_tabs >= 1, "expected at least one inactive tab (no accent strip)");
     }
 
     #[test]

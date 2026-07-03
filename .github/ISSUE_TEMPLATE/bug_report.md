@@ -25,8 +25,8 @@ If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
  - OS: [e.g. Ubuntu 22.04, macOS 14, Windows 11]
- - Rust Version: [e.g. 1.75.0]
- - Neote Version: [e.g. 0.1.0]
+ - Rust Version: [e.g. 1.85.0]
+ - Zaroxi Studio Version: [e.g. 0.1.0]
 
 **Additional context**
 Add any other context about the problem here.

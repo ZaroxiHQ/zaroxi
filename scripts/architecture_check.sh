@@ -88,11 +88,12 @@ FAMILY_PATTERNS["^zaroxi-kernel-"]="kernel"
 FAMILY_PATTERNS["^zaroxi-kernel-id$"]="kernel"
 
 # explicit app/tooling patterns (avoid them being treated as unknown)
+# NOTE: the standalone `ai-daemon`, `workspace-daemon` and `desktop` app stubs
+# were obsolete (they referenced pre-migration crate names that no longer exist)
+# and have been removed. The only remaining composition root is the desktop
+# harness under apps/.
 FAMILY_PATTERNS["^apps/"]="app_bin"
 FAMILY_PATTERNS["^zaroxi-desktop-harness$"]="harness"
-FAMILY_PATTERNS["^workspace-daemon$"]="daemon"
-FAMILY_PATTERNS["^ai-daemon$"]="daemon"
-FAMILY_PATTERNS["^desktop$"]="app_bin"
 FAMILY_PATTERNS["^crates/zaroxi-desktop-harness$"]="harness"
 
 declare -A FAMILY_ROLE
@@ -312,7 +313,10 @@ for toml in "${CRATE_TOMLS[@]}"; do
   from_family="${CRATE_TO_FAMILY[$crate_name]:-unknown}"
   from_rank=$(family_rank "$from_family")
 
-  deps=$(grep -E "zaroxi[-_][a-z0-9\-_/]+" "$toml" || true)
+  # Strip TOML comments (full-line and inline) before scanning for dependency
+  # tokens so that explanatory comments mentioning other crates are never
+  # misread as real dependency edges.
+  deps=$(sed 's/#.*$//' "$toml" | grep -E "zaroxi[-_][a-z0-9\-_/]+" || true)
   if [ -z "$deps" ]; then
     log_pass "cargo-deps: $crate_name declares no zaroxi-* deps"
     continue

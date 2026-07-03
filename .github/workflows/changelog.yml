@@ -1,0 +1,47 @@
+name: Changelog
+
+# Regenerates CHANGELOG.md from the repository's GitHub Releases and commits it
+# back to main. Release notes are drafted by Release Drafter from merged PRs, so
+# the changelog stays in sync with the published releases automatically.
+
+on:
+  release:
+    types: [published, edited, deleted, released]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Avoid overlapping commits if several release events fire close together.
+concurrency:
+  group: changelog
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    name: Generate CHANGELOG.md from releases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Generate and commit changelog
+        uses: rhysd/changelog-from-release/action@v3
+        with:
+          file: CHANGELOG.md
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit_summary_template: 'docs(changelog): update for %s [skip ci]'
+          header: |
+            <!--
+            This file is generated from GitHub Releases by the "Changelog" workflow
+            (.github/workflows/changelog.yml). Edit the corresponding GitHub Release
+            (or the PRs feeding Release Drafter), not this file.
+            -->
+
+            # Changelog
+
+            All notable changes to Zaroxi Studio are documented in this file.
+            Release notes are drafted automatically by Release Drafter from merged
+            pull requests and adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

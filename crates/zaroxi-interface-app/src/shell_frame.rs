@@ -142,30 +142,11 @@ impl ShellFrameViewModel {
     }
 }
 
-#[cfg(test)]
-mod desktop_interop {
-    use super::*;
-    use zaroxi_interface_desktop::projections::shell_frame as desktop;
-
-    impl From<desktop::ShellFrameModel> for ShellFrameModel {
-        fn from(d: desktop::ShellFrameModel) -> Self {
-            ShellFrameModel {
-                viewport_summary: d.viewport_summary,
-                status_text: d.status_text,
-                shell_chrome: d.shell_chrome,
-                last_command: d.last_command,
-                active_text_view: d.active_text_view.map(|t| TextView {
-                    top_line: t.top_line,
-                    total_lines: t.total_lines,
-                    lines: t.lines,
-                    cursor_line: t.cursor_line,
-                    cursor_column: t.cursor_column,
-                }),
-                selection_view: d.selection_view.map(|s| SelectionView {
-                    start: Position { line: s.start.line, column: s.start.column },
-                    end: Position { line: s.end.line, column: s.end.column },
-                }),
-            }
-        }
-    }
-}
+// NOTE: A `From<zaroxi_interface_desktop::projections::shell_frame::ShellFrameModel>`
+// conversion used to live here behind `#[cfg(test)]`, but it forced a
+// dev-dependency on interface-desktop and created an interface-app <->
+// interface-desktop cycle. The conversion and the cross-crate interop tests now
+// live in the interface-desktop crate (see
+// crates/zaroxi-interface-desktop/tests/), which legitimately depends on this
+// crate. `ShellFrameViewModel::set` remains generic over `Into<ShellFrameModel>`
+// so desktop code can still supply that conversion at the correct layer.

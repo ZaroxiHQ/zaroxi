@@ -1,0 +1,50 @@
+# cargo-audit project-level configuration (https://rustsec.org)
+#
+# Governs `cargo audit` in CI (.github/workflows/security-audit.yml) and locally.
+# Standard location: <workspace-root>/.cargo/audit.toml
+#
+# Kept in sync with the `[advisories].ignore` list in deny.toml.
+
+[advisories]
+# -----------------------------------------------------------------
+# TEMPORARY, JUSTIFIED IGNORES.
+#
+# These are transitive, build-time-only dependencies with no reachable runtime
+# attack surface, and there is currently NO upstream release that fixes them.
+# (Verified: the highest quick-xml requirement across every published
+# wayland-scanner version is ^0.39 — no release uses the fixed quick-xml yet.)
+# Each entry must be removed as soon as the upstream crate ships a fix.
+# -----------------------------------------------------------------
+ignore = [
+    # RUSTSEC-2026-0194 — quick-xml quadratic run time on duplicate attributes.
+    # RUSTSEC-2026-0195 — quick-xml unbounded namespace-declaration allocation.
+    #
+    # quick-xml 0.39.4 is reached ONLY through the winit Wayland backend:
+    #   winit 0.30.13 → smithay-client-toolkit 0.19.2 → wayland-scanner 0.31.10
+    # and wayland-scanner pins `quick-xml = "^0.39"` (>=0.39,<0.40). No published
+    # wayland-scanner release has ever used quick-xml >= 0.40, so no dependency
+    # bump (including upgrading winit) can currently resolve to >= 0.41.
+    #
+    # The XML parsing runs at BUILD time inside the wayland-scanner proc-macro,
+    # over trusted wayland-protocol XML shipped inside the dependency — there is
+    # no attacker-controlled input and therefore no runtime DoS surface.
+    #
+    # UPGRADE PATH: drop these two IDs and bump winit as soon as the
+    # smithay/wayland-rs stack ships a wayland-scanner that requires
+    # quick-xml >= 0.41.0.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
+
+# -----------------------------------------------------------------
+# Informational (warning-only) advisories — documented, not error-level.
+#
+# cargo-audit prints these as warnings and does NOT fail on them by default, so
+# they are recorded here for traceability rather than being suppressed:
+#
+#   RUSTSEC-2024-0384 — `instant` 0.1.13 unmaintained. Transitive via wgpu
+#     29.0.3; removed once wgpu is upgraded (upstream moved to `web-time`).
+#
+#   RUSTSEC-2026-0192 — `ttf-parser` 0.25.1 unmaintained. Transitive via
+#     fontdb → cosmic-text 0.19.0; removed once cosmic-text refreshes it.
+# -----------------------------------------------------------------

@@ -2,6 +2,7 @@
 name = "zaroxi-desktop-harness"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 # Use workspace tokio pin (features centralized in workspace).
@@ -20,6 +21,14 @@ zaroxi-core-editor-buffer = { path = "../../crates/zaroxi-core-editor-buffer" }
 # Infrastructure adapters (outer composition references infra implementations)
 zaroxi-infrastructure-ai-mock = { path = "../../crates/zaroxi-infrastructure-ai-mock" }
 zaroxi-infrastructure-memory = { path = "../../crates/zaroxi-infrastructure-memory" }
+
+# Dev-only dependency for the relocated composition integration tests
+# (tests/ai_flow.rs, tests/durability.rs). All other crates these tests use
+# (application-workspace, application-ai, domain-workspace, core-editor-buffer,
+# infrastructure-memory, infrastructure-ai-mock, tokio) are already normal
+# dependencies above; only kernel-types is additionally needed by the tests.
+[dev-dependencies]
+zaroxi-kernel-types = { path = "../../crates/zaroxi-kernel-types" }
 
 [lints]
 workspace = true

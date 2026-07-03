@@ -1,3 +1,9 @@
+//! Composition-root integration test: checkpoint save/load roundtrip and
+//! malformed-data handling, wiring the application orchestrator with the
+//! concrete in-memory durability adapter. Relocated here from
+//! `zaroxi-application-workspace` so infrastructure adapters depend on the
+//! application ports (and never the reverse), keeping the graph acyclic.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

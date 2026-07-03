@@ -194,8 +194,16 @@ async fn viewport_set_and_projection() {
         .await
         .expect("visible ok");
     let win = resp.window;
-    // Height should be respected
-    assert_eq!(win.lines.len(), 5);
+    // Contract: `project_visible_lines_for_viewport` uses `window_height` only to
+    // center `top_line` on the cursor, then projects every line from that start to
+    // end-of-document — the renderer performs per-glyph clip culling, so there is
+    // no hard window-size cap (see commit "remove window_height slice limit,
+    // project all lines to EOF"). window_height is a centering hint, not a line cap.
+    assert_eq!(win.total_lines, 20, "total line count is preserved");
+    // Cursor at line 10 (0-based) with half-window 2 -> 0-based start 9 -> top_line 10.
+    assert_eq!(win.top_line, 10);
+    // All lines from the centered start to EOF are projected.
+    assert_eq!(win.lines.len(), win.total_lines - (win.top_line - 1));
     // Cursor line should be present and marked
     assert!(win.lines.iter().any(|l| l.is_cursor_line));
     // top_line should be >= 1

@@ -22,31 +22,36 @@ jobs:
               pull_number: context.payload.pull_request.number
             });
 
-            const isFirstTimeContributor = pr.author_association === 'FIRST_TIME_CONTRIBUTOR' || 
-                                           pr.author_association === 'CONTRIBUTOR';
+            const isFirstTimeContributor =
+              pr.author_association === 'FIRST_TIME_CONTRIBUTOR' ||
+              pr.author_association === 'CONTRIBUTOR';
 
             if (isFirstTimeContributor) {
+              const body = [
+                '## 👋 Welcome to Zaroxi Studio!',
+                '',
+                'Thank you for your contribution to Zaroxi Studio, the crate-first, pure-Rust editor/IDE runtime!',
+                '',
+                'We appreciate you taking the time to submit this pull request. Our team will review it as soon as possible.',
+                '',
+                '### 🚀 Quick tips:',
+                '- Make sure all CI checks pass',
+                '- Follow the existing code style',
+                '- Add tests if applicable',
+                '- Update documentation if needed',
+                '',
+                '### 📋 Next steps:',
+                '1. Wait for maintainers to review your PR',
+                '2. Address any feedback if requested',
+                '3. Once approved, your changes will be merged!',
+                '',
+                'Thanks again for helping make Zaroxi Studio better! 🎉',
+              ].join('\n');
+
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.pull_request.number,
-                body: `## 👋 Welcome to Neote!
-
-Thank you for your contribution to Neote, the AI-first IDE!
-
-We appreciate you taking the time to submit this pull request. Our team will review it as soon as possible.
-
-### 🚀 Quick tips:
-- Make sure all CI checks pass
-- Follow the existing code style
-- Add tests if applicable
-- Update documentation if needed
-
-### 📋 Next steps:
-1. Wait for maintainers to review your PR
-2. Address any feedback if requested
-3. Once approved, your changes will be merged!
-
-Thanks again for helping make Neote better! 🎉`
+                body,
               });
             }

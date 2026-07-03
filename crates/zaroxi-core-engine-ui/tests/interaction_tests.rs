@@ -3,8 +3,31 @@ mod tests {
     use zaroxi_core_engine_layout::ShellLayout;
     use zaroxi_core_engine_style::test_utils::test_tokens_dark;
     use zaroxi_core_engine_ui::{
-        PointerButton, ShellWidget, WidgetAction, WidgetInteractionModel, build_shell_widget_tree,
+        PointerButton, ShellWidget, ShellWidgetTree, WidgetAction, WidgetInteractionModel,
+        build_shell_widget_tree,
     };
+
+    /// Center of the first interactive `TabItem` in the shell widget tree.
+    ///
+    /// The content tab strip is now rendered exclusively by the cockpit
+    /// WorkbenchTabStrip overlay (see `shell_builder.rs`), so the shell shape pass
+    /// emits only a background surface + divider there — no hittable widget. The
+    /// tree's interactive tabs are therefore the bottom-panel tabs
+    /// (Terminal/Problems/Output). These interaction tests target a real
+    /// interactive `TabItem` via this helper instead of the (now non-interactive)
+    /// content tab strip, so they exercise the interaction model against an
+    /// actual hit target and stay robust to layout-constant changes.
+    fn first_tab_center(tree: &ShellWidgetTree) -> (f32, f32) {
+        let rect = tree
+            .widgets
+            .iter()
+            .find_map(|w| match w {
+                ShellWidget::TabItem { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("shell widget tree must expose at least one interactive TabItem");
+        (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+    }
 
     #[test]
     fn hover_tracks_widget_and_emits_action() {
@@ -20,8 +43,7 @@ mod tests {
         );
         assert!(model.hovered_widget_idx.is_none());
 
-        let tab_x = layout.content_tab_strip.x + 10.0;
-        let tab_y = layout.content_tab_strip.y + 5.0;
+        let (tab_x, tab_y) = first_tab_center(&tree);
         let actions = model.on_pointer_moved(&mut tree, tab_x, tab_y);
         assert!(
             actions.iter().any(|a| matches!(a, WidgetAction::HoverChanged(Some(_)))),
@@ -54,8 +76,7 @@ mod tests {
         let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
-        let tab_x = layout.content_tab_strip.x + 10.0;
-        let tab_y = layout.content_tab_strip.y + 5.0;
+        let (tab_x, tab_y) = first_tab_center(&tree);
         let _ = model.on_pointer_moved(&mut tree, tab_x, tab_y);
         assert!(model.hovered_widget_idx.is_some());
 
@@ -74,8 +95,7 @@ mod tests {
         let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
-        let tab_x = layout.content_tab_strip.x + 10.0;
-        let tab_y = layout.content_tab_strip.y + 5.0;
+        let (tab_x, tab_y) = first_tab_center(&tree);
 
         let _ = model.on_pointer_down(&mut tree, tab_x, tab_y, PointerButton::Primary);
         assert!(model.pressed_widget_idx.is_some(), "press should record pressed widget");
@@ -94,8 +114,7 @@ mod tests {
         let mut tree = build_shell_widget_tree(&layout, &tokens, None);
         let mut model = WidgetInteractionModel::new();
 
-        let tab_x = layout.content_tab_strip.x + 10.0;
-        let tab_y = layout.content_tab_strip.y + 5.0;
+        let (tab_x, tab_y) = first_tab_center(&tree);
         let rail_x = 10.0;
         let rail_y = layout.left_panel.y + 10.0;
 

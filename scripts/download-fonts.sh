@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 
 # =============================================================================
-# Professional Font Download Script for Zaroxi Studio
-# Downloads and installs JetBrains Mono Nerd Font
+# Font Download Script for Zaroxi Studio (pure-Rust)
+#
+# Downloads the JetBrains Mono Nerd Font and installs the variants into
+# `assets/fonts/`, the workspace-bundled font directory read at runtime by
+# `zaroxi-core-engine-font` (see `load_project_font_bytes`). The engine PREFERS
+# the "Mono" Nerd Font variant (single-cell icon width) and falls back to the
+# standard variant, so both are installed.
+#
+# There is no Tauri / web frontend — fonts are consumed directly by the Rust
+# rendering stack (cosmic-text / wgpu / vello).
 # =============================================================================
 
 set -euo pipefail
@@ -11,61 +19,49 @@ set -euo pipefail
 # Configuration
 # -----------------------------------------------------------------------------
 readonly SCRIPT_NAME=$(basename "$0")
-readonly SCRIPT_VERSION="1.0.0"
-readonly FONT_DIR="apps/desktop/frontend/public/fonts"
+readonly SCRIPT_VERSION="2.0.0"
+
+# Resolve the workspace root from this script's location so the script works
+# regardless of the current working directory.
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly FONT_DIR="${REPO_ROOT}/assets/fonts"
+
 readonly NERD_FONTS_REPO="https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0"
 readonly ZIP_FILE="JetBrainsMono.zip"
 readonly DOWNLOAD_URL="${NERD_FONTS_REPO}/${ZIP_FILE}"
 
-# Font variants we need with their target filenames
-declare -A FONT_TARGETS=(
-    ["Regular"]="JetBrainsMonoNerdFont-Regular.ttf"
-    ["Bold"]="JetBrainsMonoNerdFont-Bold.ttf"
-    ["Italic"]="JetBrainsMonoNerdFont-Italic.ttf"
-    ["BoldItalic"]="JetBrainsMonoNerdFont-BoldItalic.ttf"
+# Files to install (source basename inside the archive == destination basename).
+# The engine's font loader looks for these exact names under assets/fonts/:
+#   - JetBrainsMonoNerdFontMono-Regular.ttf   (preferred: single-cell icons)
+#   - JetBrainsMonoNerdFont-Regular.ttf       (fallback)
+# The additional weights/styles are installed for future use by the renderer.
+readonly FONT_FILES=(
+    "JetBrainsMonoNerdFontMono-Regular.ttf"
+    "JetBrainsMonoNerdFont-Regular.ttf"
+    "JetBrainsMonoNerdFont-Bold.ttf"
+    "JetBrainsMonoNerdFont-Italic.ttf"
+    "JetBrainsMonoNerdFont-BoldItalic.ttf"
 )
 
 # -----------------------------------------------------------------------------
 # Logging functions
 # -----------------------------------------------------------------------------
-log_info() {
-    echo "[INFO] $*"
-}
-
-log_success() {
-    echo "✅ $*"
-}
-
-log_warning() {
-    echo "⚠️  $*"
-}
-
-log_error() {
-    echo "❌ $*" >&2
-}
-
-log_debug() {
-    if [[ "${DEBUG:-false}" == "true" ]]; then
-        echo "[DEBUG] $*"
-    fi
-}
+log_info()    { echo "[INFO] $*"; }
+log_success() { echo "✅ $*"; }
+log_warning() { echo "⚠️  $*"; }
+log_error()   { echo "❌ $*" >&2; }
+log_debug()   { if [[ "${DEBUG:-false}" == "true" ]]; then echo "[DEBUG] $*"; fi; }
 
 # -----------------------------------------------------------------------------
 # Utility functions
 # -----------------------------------------------------------------------------
 cleanup() {
     local exit_code=$?
-    
     if [[ -n "${TEMP_DIR:-}" && -d "$TEMP_DIR" ]]; then
         log_debug "Removing temporary directory: $TEMP_DIR"
         rm -rf "$TEMP_DIR"
     fi
-    
-    if [[ -f "$FONT_DIR/$ZIP_FILE" ]]; then
-        log_debug "Removing zip file: $FONT_DIR/$ZIP_FILE"
-        rm -f "$FONT_DIR/$ZIP_FILE"
-    fi
-    
     if [[ $exit_code -eq 0 ]]; then
         log_success "Script completed successfully"
     else
@@ -77,234 +73,160 @@ print_usage() {
     cat << EOF
 Usage: $SCRIPT_NAME [OPTIONS]
 
-Downloads and installs JetBrains Mono Nerd Font for Zaroxi Studio.
+Downloads and installs the JetBrains Mono Nerd Font into assets/fonts/ for the
+pure-Rust Zaroxi Studio rendering stack.
 
 Options:
     -h, --help      Show this help message
     -v, --version   Show version information
     -d, --debug     Enable debug output
-    --clean         Clean the fonts directory before installation
+    --clean         Remove existing .ttf files in assets/fonts/ before installing
 
 Examples:
     $SCRIPT_NAME              # Download and install fonts
     $SCRIPT_NAME --clean      # Clean install
     $SCRIPT_NAME --debug      # Enable debug output
-
 EOF
 }
 
-print_version() {
-    echo "$SCRIPT_NAME version $SCRIPT_VERSION"
+print_version() { echo "$SCRIPT_NAME version $SCRIPT_VERSION"; }
+
+file_size() {
+    # Portable file size (macOS uses -f%z, GNU/Linux uses -c%s).
+    stat -f%z "$1" 2>/dev/null || stat -c%s "$1" 2>/dev/null || echo "0"
 }
 
 # -----------------------------------------------------------------------------
-# Font discovery and installation
+# Font installation
 # -----------------------------------------------------------------------------
-discover_font_file() {
-    local variant="$1"
-    local temp_dir="$2"
-    
-    case "$variant" in
-        "Regular")
-            # Look for files containing "Regular" but not "Italic"
-            find "$temp_dir" -name "*.ttf" -type f | \
-                grep -i "regular" | grep -v -i "italic" | head -1
-            ;;
-        "Bold")
-            # Look for files containing "Bold" but not "Italic"
-            find "$temp_dir" -name "*.ttf" -type f | \
-                grep -i "bold" | grep -v -i "italic" | head -1
-            ;;
-        "Italic")
-            # Look for files containing "Italic" but not "Bold"
-            find "$temp_dir" -name "*.ttf" -type f | \
-                grep -i "italic" | grep -v -i "bold" | head -1
-            ;;
-        "BoldItalic")
-            # Look for files containing both "Bold" and "Italic"
-            find "$temp_dir" -name "*.ttf" -type f | \
-                grep -i "bold.*italic\|italic.*bold" | head -1
-            ;;
-        *)
-            log_error "Unknown font variant: $variant"
-            return 1
-            ;;
-    esac
-}
-
 install_fonts() {
     local temp_dir="$1"
-    local clean="$2"
-    
-    log_info "Installing fonts to: $FONT_DIR"
-    
-    # Create fonts directory if it doesn't exist
-    mkdir -p "$FONT_DIR"
-    
-    # Clean fonts directory if requested
-    if [[ "$clean" == "true" ]]; then
-        log_info "Cleaning fonts directory..."
-        rm -f "$FONT_DIR"/*.ttf 2>/dev/null || true
-    fi
-    
-    # Install each font variant
     local installed_count=0
-    for variant in "${!FONT_TARGETS[@]}"; do
-        local target_file="${FONT_TARGETS[$variant]}"
-        local source_file=$(discover_font_file "$variant" "$temp_dir")
-        
+
+    for target in "${FONT_FILES[@]}"; do
+        # Match the exact archive filename first; fall back to a loose match.
+        local source_file
+        source_file=$(find "$temp_dir" -type f -name "$target" | head -1)
+        if [[ -z "$source_file" ]]; then
+            source_file=$(find "$temp_dir" -type f -name "*${target}" | head -1)
+        fi
+
         if [[ -n "$source_file" && -f "$source_file" ]]; then
-            cp "$source_file" "$FONT_DIR/$target_file"
-            log_success "Installed $variant -> $target_file"
-            ((installed_count++))
+            cp "$source_file" "$FONT_DIR/$target"
+            log_success "Installed $target"
+            installed_count=$((installed_count + 1))
         else
-            log_warning "Could not find source file for variant: $variant"
-            log_debug "Searched for pattern: $variant"
+            log_warning "Could not find '$target' in the downloaded archive"
         fi
     done
-    
+
     echo "$installed_count"
 }
 
 verify_installation() {
     log_info "Verifying installation..."
-    
-    local all_present=true
-    for variant in "${!FONT_TARGETS[@]}"; do
-        local target_file="${FONT_TARGETS[$variant]}"
-        local file_path="$FONT_DIR/$target_file"
-        
-        if [[ -f "$file_path" ]]; then
-            local file_size=$(stat -f%z "$file_path" 2>/dev/null || stat -c%s "$file_path" 2>/dev/null || echo "0")
-            if [[ $file_size -gt 1000 ]]; then
-                log_success "$target_file ($((file_size/1024)) KB)"
-            else
-                log_warning "$target_file (file too small: ${file_size} bytes)"
-                all_present=false
-            fi
-        else
-            log_error "Missing: $target_file"
-            all_present=false
+    # The engine only strictly requires a Regular variant (Mono preferred).
+    local required=(
+        "JetBrainsMonoNerdFontMono-Regular.ttf"
+        "JetBrainsMonoNerdFont-Regular.ttf"
+    )
+    local have_regular=false
+    for f in "${required[@]}"; do
+        local path="$FONT_DIR/$f"
+        if [[ -f "$path" && "$(file_size "$path")" -gt 1000 ]]; then
+            log_success "$f ($(( $(file_size "$path") / 1024 )) KB)"
+            have_regular=true
         fi
     done
-    
-    if [[ "$all_present" == "true" ]]; then
-        log_success "All required fonts are installed"
+
+    if [[ "$have_regular" == "true" ]]; then
+        log_success "A usable Regular font variant is installed"
         return 0
-    else
-        log_warning "Some fonts are missing or invalid"
-        return 1
     fi
+    log_error "No usable Regular font variant found in $FONT_DIR"
+    return 1
 }
 
 # -----------------------------------------------------------------------------
-# Main script execution
+# Main
 # -----------------------------------------------------------------------------
 main() {
     local clean_install=false
     local debug_mode=false
-    
-    # Parse command line arguments
+
     while [[ $# -gt 0 ]]; do
         case $1 in
-            -h|--help)
-                print_usage
-                exit 0
-                ;;
-            -v|--version)
-                print_version
-                exit 0
-                ;;
-            -d|--debug)
-                debug_mode=true
-                DEBUG=true
-                shift
-                ;;
-            --clean)
-                clean_install=true
-                shift
-                ;;
-            *)
-                log_error "Unknown option: $1"
-                print_usage
-                exit 1
-                ;;
+            -h|--help)    print_usage; exit 0 ;;
+            -v|--version) print_version; exit 0 ;;
+            -d|--debug)   debug_mode=true; DEBUG=true; shift ;;
+            --clean)      clean_install=true; shift ;;
+            *)            log_error "Unknown option: $1"; print_usage; exit 1 ;;
         esac
     done
-    
-    # Register cleanup handler
+
     trap cleanup EXIT
-    
+
     log_info "Starting font installation..."
     log_debug "Font directory: $FONT_DIR"
     log_debug "Download URL: $DOWNLOAD_URL"
-    
-    # Create fonts directory
+
     mkdir -p "$FONT_DIR"
-    
-    # Download the font zip
+
+    if [[ "$clean_install" == "true" ]]; then
+        log_info "Cleaning existing fonts in $FONT_DIR..."
+        rm -f "$FONT_DIR"/*.ttf 2>/dev/null || true
+    fi
+
+    TEMP_DIR=$(mktemp -d)
+    log_debug "Created temporary directory: $TEMP_DIR"
+
     log_info "Downloading JetBrains Mono Nerd Font..."
-    if ! curl -L -o "$FONT_DIR/$ZIP_FILE" "$DOWNLOAD_URL" --fail --progress-bar; then
+    if ! curl -L -o "$TEMP_DIR/$ZIP_FILE" "$DOWNLOAD_URL" --fail --progress-bar; then
         log_error "Failed to download font archive"
         log_info "Trying fallback to version 3.3.0..."
         local fallback_url="https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/$ZIP_FILE"
-        if ! curl -L -o "$FONT_DIR/$ZIP_FILE" "$fallback_url" --fail --progress-bar; then
+        if ! curl -L -o "$TEMP_DIR/$ZIP_FILE" "$fallback_url" --fail --progress-bar; then
             log_error "Fallback download also failed"
             log_info "Please download manually from: https://github.com/ryanoasis/nerd-fonts/releases"
             exit 1
         fi
     fi
-    
-    # Verify downloaded file
-    if [[ ! -s "$FONT_DIR/$ZIP_FILE" ]]; then
+
+    if [[ ! -s "$TEMP_DIR/$ZIP_FILE" ]]; then
         log_error "Downloaded file is empty or corrupted"
         exit 1
     fi
-    
     log_success "Download completed"
-    
-    # Create temporary directory for extraction
-    TEMP_DIR=$(mktemp -d)
-    log_debug "Created temporary directory: $TEMP_DIR"
-    
-    # Extract the zip file
+
     log_info "Extracting font files..."
-    if ! unzip -q "$FONT_DIR/$ZIP_FILE" -d "$TEMP_DIR" 2>/dev/null; then
+    if ! unzip -q "$TEMP_DIR/$ZIP_FILE" -d "$TEMP_DIR/extracted"; then
         log_error "Failed to extract font archive"
         exit 1
     fi
-    
     log_success "Extraction completed"
-    
-    # List found font files (debug mode)
+
     if [[ "$debug_mode" == "true" ]]; then
         log_info "Found font files:"
-        find "$TEMP_DIR" -name "*.ttf" -type f | head -10 | while read -r font_file; do
+        find "$TEMP_DIR/extracted" -name "*.ttf" -type f | head -10 | while read -r font_file; do
             echo "  - $(basename "$font_file")"
         done
     fi
-    
-    # Install fonts
-    local installed_count=$(install_fonts "$TEMP_DIR" "$clean_install")
-    
-    # Verify installation
+
+    local installed_count
+    installed_count=$(install_fonts "$TEMP_DIR/extracted")
+
     if verify_installation; then
         log_success "Font installation completed successfully"
-        log_info "Installed $installed_count font variants"
-        log_info "Fonts are available at: $FONT_DIR"
-        
-        # Show directory contents
-        log_info "Font directory contents:"
+        log_info "Installed $installed_count font file(s) into: $FONT_DIR"
         ls -lh "$FONT_DIR"/*.ttf 2>/dev/null || log_warning "No font files found"
     else
         log_warning "Font installation completed with warnings"
-        log_info "Some fonts may be missing. Check the output above for details."
         exit 1
     fi
 }
 
 # -----------------------------------------------------------------------------
-# Script entry point
+# Entry point
 # -----------------------------------------------------------------------------
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"

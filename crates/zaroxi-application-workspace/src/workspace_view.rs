@@ -310,18 +310,27 @@ pub fn build_work_content(
         // Guard: if visible_window has no lines, treat it as absent so we
         // don't build source="visible_window" content with an empty payload.
         let vw_valid = visible_window.as_ref().is_some_and(|vw| !vw.lines.is_empty());
-        let lines: Vec<String> = if vw_valid {
+        let mut lines: Vec<String> = if vw_valid {
             visible_window.as_ref().unwrap().lines.clone()
         } else {
             d.current_line_snippet.as_ref().map(|s| vec![s.clone()]).unwrap_or_default()
         };
-        let source = if vw_valid {
+        let mut source = if vw_valid {
             "visible_window"
         } else if d.current_line_snippet.is_some() {
             "presenter_snippet"
         } else {
             "empty"
         };
+        // Contract: when an active document is present but yields no visible
+        // lines (empty/whitespace-only content, or no snippet available yet),
+        // fall back to the engine default content lines so the editor body is
+        // never rendered blank. `editor_body` stays `None` only when there is no
+        // active document at all (handled by the outer `doc.map`).
+        if lines.is_empty() {
+            lines = ContentView::default().lines;
+            source = "default";
+        }
         if std::env::var("ZAROXI_FILE_TABS").as_deref() == Ok("1") {
             eprintln!(
                 "ZAROXI_FILE_TABS: build_content  buf={}  title={title}  \

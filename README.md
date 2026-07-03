@@ -11,7 +11,7 @@ Repository: https://github.com/ZaroxiHQ/zaroxi
 
 Zaroxi is a crate-first editor and IDE runtime written in Rust, organized into strict layers:
 
-```
+```text
 Kernel → Core → Domain → Application → Interface
 ```
 
