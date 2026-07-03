@@ -122,4 +122,18 @@ printf '  ✓ PASS  %s\n' "${PASSED[@]:-}"
 echo "────────────────────────────────────────────────────────────────────"
 echo "  ${#PASSED[@]} passed, ${#FAILED[@]} failed, ${#SKIPPED[@]} skipped"
 
+# Windows follow-up: this script targets Unix. The Windows-specific gates
+# (MSVC grammar build, .dll loading, filesystem read-only semantics) can only be
+# validated on Windows. Point the developer at the PowerShell equivalent.
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW* | MSYS* | CYGWIN* | Windows_NT) ;;
+  *)
+    echo ""
+    echo "ℹ Windows gates are NOT covered here. On a Windows host/runner run:"
+    echo "    pwsh -File tooling/scripts/run-ci-windows.ps1"
+    echo "  (covers explorer_integration, resolve_dirty_close, highlight_spans,"
+    echo "   MSVC grammar build, and the shared fmt/clippy/test/audit/deny gates)"
+    ;;
+esac
+
 [[ ${#FAILED[@]} -eq 0 ]]

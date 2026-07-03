@@ -3,11 +3,17 @@ use std::fs;
 use std::path::PathBuf;
 use zaroxi_application_workspace::editor_service::{CloseResult, EditorService};
 
+// Process-wide counter + pid guarantee unique temp paths across parallel test
+// binaries/threads even on hosts with coarse clock resolution (Windows CI VMs),
+// where millisecond timestamps alone can collide and let tests clobber each
+// other's files.
+static UNIQUE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn unique_path(name: &str) -> PathBuf {
     let mut p = temp_dir();
-    let ts =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
-    p.push(format!("zaroxi_test_{}_{}.txt", name, ts));
+    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let n = UNIQUE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    p.push(format!("zaroxi_test_{}_{}_{}_{}.txt", name, std::process::id(), ts, n));
     p
 }
 

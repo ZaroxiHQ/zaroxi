@@ -9,17 +9,24 @@ button placement, tree item visibility, and toggle-open-file flow.
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_interface_desktop::gui::window::explorer_panel::ExplorerPanelViewModel;
 
+// Monotonic counter guaranteeing unique temp workspaces across parallel tests
+// even where the clock resolution is coarse (Windows CI VMs). See the matching
+// note in tests/explorer_integration.rs.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn temp_workspace() -> PathBuf {
     let base = env::temp_dir();
     let uniq = format!(
-        "zaroxi_panel_test_{}_{}",
+        "zaroxi_panel_test_{}_{}_{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed),
     );
     base.join(uniq).join("workspace")
 }

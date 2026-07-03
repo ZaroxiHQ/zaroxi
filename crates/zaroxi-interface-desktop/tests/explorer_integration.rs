@@ -1,18 +1,30 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zaroxi_interface_desktop::DesktopComposition;
 use zaroxi_interface_desktop::folder_picker::{
     FakeFolderPicker, FolderPicker, PickerDiagnostics, PickerKind, PickerOutcome,
 };
 
+// Process-wide monotonic counter that guarantees every temp workspace path is
+// unique even when tests run in parallel on hosts with coarse clock resolution.
+// On Linux/macOS `SystemTime::now().as_nanos()` is effectively unique per call,
+// but on Windows CI (VM) the system clock can return identical values for
+// concurrent calls, so two parallel tests could resolve to the SAME temp dir and
+// interfere — e.g. a test that writes files could pollute the directory that
+// `explorer_empty_directory_shows_no_items` expects to be empty. The counter
+// removes that collision deterministically on every platform.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 fn temp_workspace() -> PathBuf {
     let base = env::temp_dir();
     let uniq = format!(
-        "zaroxi_test_{}_{}",
+        "zaroxi_test_{}_{}_{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos(),
+        TEMP_COUNTER.fetch_add(1, Ordering::Relaxed),
     );
     let tmp = base.join(uniq);
 
@@ -104,7 +116,8 @@ fn explorer_empty_directory_shows_no_items() -> std::io::Result<()> {
 
 #[test]
 fn explorer_load_handles_nonexistent_path() {
-    let root = PathBuf::from("/tmp/nonexistent_zaroxi_workspace_12345");
+    // Portable nonexistent path (avoid hardcoded `/tmp`, which is Unix-specific).
+    let root = env::temp_dir().join("nonexistent_zaroxi_workspace_12345_does_not_exist");
 
     let mut comp = DesktopComposition::new();
     comp.workspace_root_path = Some(root);
