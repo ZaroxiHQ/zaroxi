@@ -99,39 +99,21 @@ autolabeler:
     title: ['/^chore(\([^)]*\))?!?:/i']
 
 # ── Release-notes template ───────────────────────────────────────────────────
+# Kept intentionally minimal and professional: only the changelog, contributors,
+# and the full-diff link. Installation/usage and project overview belong in the
+# README and docs, not on every release page.
 category-template: '### $TITLE'
 no-changes-template: '- No user-facing changes in this release.'
 
-header: |
-  ## 🎉 Zaroxi Studio $RESOLVED_VERSION
-
-  Zaroxi Studio is a crate-first, pure-Rust editor / IDE runtime
-  (winit · wgpu · vello · cosmic-text). This release rolls up everything merged
-  to `main` since the previous tag.
-
 template: |
-  ## What's changed
+  ## What's Changed
 
   $CHANGES
 
 footer: |
 
-  ## 📦 Installation
+  ## Contributors
 
-  Prebuilt binaries for **Linux**, **macOS**, and **Windows** are attached to
-  this release as assets. Download the archive for your platform, extract it, and
-  run the `gui_shell` executable (keep the bundled `assets/fonts/` next to it).
-
-  From source:
-
-  ```bash
-  git clone https://github.com/$OWNER/$REPOSITORY.git
-  cd $REPOSITORY
-  cargo run -p zaroxi-interface-desktop --bin gui_shell --release
-  ```
-
-  ## 🙌 Contributors
-
-  Thanks to everyone who contributed to this release: $CONTRIBUTORS
+  $CONTRIBUTORS
 
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
