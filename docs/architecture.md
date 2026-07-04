@@ -1,148 +1,211 @@
-# Architecture — System Responsibilities, Contracts, and Runtime Flow
+# Architecture
 
-Purpose: The authoritative architecture document for Zaroxi. Covers the layer model, dependency rules, concrete content/action contracts, shell geometry, and verification commands. This replaces older informal architecture notes.
+The authoritative architecture document for Zaroxi Studio. It describes the
+layer model, dependency rules and how they are enforced, the runtime shape, and
+where AI fits. Deeper topics live in focused docs and are linked at the end.
 
----
+> Scope: this document explains *how the system is structured and why*. It does
+> not restate code. Concrete desktop flows live in
+> [runtime-and-rendering.md](runtime-and-rendering.md); the crate catalog lives
+> in [crates.md](crates.md).
 
-## Layer model
+## 1. Overview
 
-```
-Kernel → Core → Domain → Application → Interface
-```
+Zaroxi Studio is a native, GPU-rendered code editor and IDE runtime written
+entirely in Rust. The repository is a single Cargo workspace of ~145 small
+crates plus one runnable app (the desktop harness).
 
-| Layer | Crate examples | Owns |
-|-------|---------------|------|
-| **Kernel** | `zaroxi-kernel-types`, `zaroxi-kernel-math` | IDs, traits, math, shared primitives |
-| **Core** | `zaroxi-core-engine-ui`, `zaroxi-core-engine-scene` | Engine composition (`ContentView`, `ShellWorkContent`, `compose_content_view`), scene primitives |
-| **Domain** | `zaroxi-domain-ai`, `zaroxi-domain-session` | Stable value objects (`AiPanelContent`, `PendingClose`), serializable state |
-| **Application** | `zaroxi-application-workspace`, `zaroxi-application-ai` | Orchestration traits (`CloseContext`, `CommandBarContext`, `RefreshContext`), shared DTOs (`workspace_view`), action functions, `build_work_content()` |
-| **Interface** | `zaroxi-interface-desktop` | Winit event loop, GPU draw, shell layout, transcript, thin delegates to application action functions |
+The design has three defining choices:
 
-Special families:
-- **Infrastructure** (`zaroxi-infrastructure-*`) — adapters for storage, RPC, OS integrations.
-- **Intelligence** (`zaroxi-intelligence-*`) — agent runtimes, planning, context packing.
-- **Security** (`zaroxi-security-*`) — policy, audit, sandbox helpers.
+- **Native and pure-Rust.** The desktop shell is drawn end to end with Rust GPU
+  crates (winit, wgpu, vello, cosmic-text). There is no web view, JavaScript
+  runtime, or Electron/Tauri layer.
+- **Crate-first and layered.** Functionality is split into many focused crates
+  arranged in strict layers, so the editor engine, orchestration, and UI evolve
+  independently and stay testable.
+- **AI-first by design.** A dedicated intelligence layer and application-owned AI
+  service ports exist alongside the editor engine, rather than being bolted onto
+  a finished app. See [ai-and-editor-flows.md](ai-and-editor-flows.md) for the
+  honest state of what is real versus evolving.
 
-## Dependencies
+## 2. Architectural principles
 
-- Outer layers MAY depend on inner layers.
-- Inner layers MUST NOT import outer layers.
-- Application MUST NOT import `zaroxi-interface-*`.
-- Domain MUST NOT import `zaroxi-interface-*` or `zaroxi-application-*`.
-- Core MUST NOT import `zaroxi-domain-*` or `zaroxi-application-*` or `zaroxi-interface-*`.
+- **Small kernel, composable core.** The kernel holds only primitives; the core
+  builds the editor and rendering engine from small units.
+- **Strict dependency direction.** Dependencies point inward
+  (Interface → Application → Domain → Core → Kernel). Inner layers never import
+  outer layers.
+- **Explicit interfaces and adapters.** The application layer defines *ports*
+  (traits); infrastructure crates provide *adapters* that implement them. The
+  composition root wires them together.
+- **Determinism over convenience.** Architecture rules are enforced by CI checks,
+  not convention (see §7). Grammars are pinned; `unsafe` is forbidden by policy.
 
-Enforce with: `bash scripts/architecture_check.sh`
+## 3. Layer model
 
-## Content flow
-
-```
-DesktopComposition::build_work_content()
-  └─ reads metadata (ai_projection, active_buffer, visible_window, etc.)
-  └─ delegates to application-workspace::build_work_content()
-       └─ ShellWorkContent { editor_body, editor_tabs, explorer_items, ai_panel_content, terminal_tabs }
-            ├─ GPU path: ShellFrame.work_content → panel::draw()
-            └─ Transcript path: widgets::render_chrome(comp)
-```
-
-**`ShellWorkContent` is the single content carrier.** Every panel reads from it. No separate content carriers.
-
-## Action flow
-
-```
-Desktop event → actions_command_bar.rs (thin delegate)
-  └─ ws::execute_command_by_index(comp: &mut C, ...)
-       └─ C: CommandBarContext + CloseContext + RefreshContext
-       └─ all 8 commands handled in application-workspace
-```
-
-## Traits in application-workspace
-
-| Trait | Purpose | Methods |
-|-------|---------|---------|
-| `CloseContext` | Close-flow state | `latest_pending_close`, `set_pending_close`, `clear_pending_close`, `close_opened_buffer`, `set_status_message`, `set_close_result_status`, `clear_close_result_status`, `perform_session_close` |
-| `CommandBarContext` | Command bar UI | `open_command_bar`, `close_command_bar`, `select_next_command`, `select_prev_command`, `latest_command_bar` |
-| `RefreshContext` | Refresh + buffer/cursor | `has_pending_refresh_reason`, `set_pending_refresh_reason`, `active_buffer`, `latest_shell_context`, `perform_refresh` |
-
-**DesktopComposition** implements all three traits. Add new trait methods there.
-
-## Adding a new command
-
-1. Add the label to `command_bar_labels()` in `workspace_view.rs`
-2. Add a match arm in `execute_command_by_index()` in `workspace_view.rs`
-3. If it uses new composition capabilities, extend the appropriate trait
-4. Implement the new trait method on `DesktopComposition`
-
-## Adding a new panel type
-
-1. Define a content model in `zaroxi-core-engine-ui` (engine-owned) or `zaroxi-domain-*` (domain-specific)
-2. Add a field to `ShellWorkContent`
-3. Add assembly logic in `build_work_content()`
-4. Wire the GPU draw path via `ShellWorkContent` field → draw function
-5. Wire the transcript path via `render_chrome()`
-
-## Shell geometry (do not change)
-
-```
-┌─────────────────────────────────────────────────┐
-│ toolbar                                          │
-├──────┬──────────────┬───────────────┬───────────┤
-│ rail │ sidebar      │ editor        │ AI panel  │
-│ 48px │ 256px        │ flex          │ 320px     │
-│      │              ├───────────────┤           │
-│      │              │ editor tabs   │           │
-│      │              │ breadcrumb    │           │
-│      │              │ center_editor │           │
-│      │              │ center_bottom │           │
-│      │              │  (terminal)   │           │
-├──────┴──────────────┴───────────────┴───────────┤
-│ status_bar (full width)                          │
-└─────────────────────────────────────────────────┘
-bottom_dock = 0px (hidden)
+```mermaid
+flowchart TD
+    I[Interface] --> A[Application]
+    A --> D[Domain]
+    D --> C[Core]
+    C --> K[Kernel]
+    INF[Infrastructure] --> C
+    INT[Intelligence] --> D
+    SEC[Security] --> D
+    A -. ports .-> INF
 ```
 
-## Runtime flow (request / control / data)
+The primary chain is **Kernel → Core → Domain → Application → Interface**.
+Three cross-cutting families sit beside it: **Infrastructure**, **Intelligence**,
+and **Security**.
 
-1. User interaction at the Interface layer (desktop, CLI) produces intents: open workspace, run command, request AI suggestion.
-2. Interface maps intents to Application APIs (thin delegates calling shared functions on `DesktopComposition` as trait impl).
-3. Application executes domain operations (workspace model, buffer semantics). Domain crates encapsulate pure logic and emit domain events.
-4. Core crates implement low-level mechanics: in-memory buffers, transactions, checkpoints, render/view composition, scheduling and input dispatch.
-5. Infrastructure adapters (storage, RPC, OS) implement concrete persistence, transport, and platform-specific behavior behind well-defined traits.
-6. Intelligence crates observe/consume domain/core state to provide planning, context packing, and suggestions.
-7. Security crates provide policy evaluation, audit event models, and validation helpers. Enforcement occurs at the application/service boundary.
+| Layer | Responsibility | May depend on | Example crates | Does **not** contain |
+|---|---|---|---|---|
+| **Kernel** | Primitives: IDs, errors, time, math, traits, collections | Kernel only | `zaroxi-kernel-types`, `zaroxi-kernel-id`, `zaroxi-kernel-math` | Editor logic, I/O, UI |
+| **Core** | The editor + rendering engine: buffers, transactions, layout, GPU draw, syntax | Kernel, Core | `zaroxi-core-editor-buffer`, `zaroxi-core-engine-ui`, `zaroxi-core-engine-render`, `zaroxi-core-platform-syntax` | Business rules, orchestration, OS adapters |
+| **Domain** | Stable value objects and models | Kernel, Core, Domain | `zaroxi-domain-workspace`, `zaroxi-domain-buffer`, `zaroxi-domain-ai` | UI, orchestration, side effects |
+| **Application** | Orchestration, use cases, and **ports** (traits adapters implement) | + Domain, Application | `zaroxi-application-workspace`, `zaroxi-application-ai`, `zaroxi-application-command` | Windowing, GPU draw, concrete I/O |
+| **Interface** | Product shells: desktop GPU shell, CLI, widgets, theme | Any inner layer | `zaroxi-interface-desktop`, `zaroxi-interface-cli`, `zaroxi-interface-widgets` | Business logic (delegates to Application) |
 
-## Where infrastructure fits
+Cross-cutting families:
 
-- Infrastructure crates implement adapters for traits defined by core/domain.
-- Infrastructure is responsible for side-effects and platform integration.
-- Keep protocol/format definitions in core/domain so infrastructure can provide multiple adapters.
+| Family | Responsibility | May depend on | Example crates |
+|---|---|---|---|
+| **Infrastructure** | Adapters for storage, RPC, network, OS integration; implement application/core ports | Kernel, Core (+ Application ports, see §7) | `zaroxi-infrastructure-storage`, `zaroxi-infrastructure-rpc`, `zaroxi-infrastructure-memory` |
+| **Intelligence** | Agents, planning, context, memory, tools, safety, embeddings | Kernel, Core, Domain | `zaroxi-intelligence-agent`, `zaroxi-intelligence-context`, `zaroxi-intelligence-planning` |
+| **Security** | Policy, audit, validation, crypto, sandbox helpers | Kernel, Core, Domain | `zaroxi-security-policy`, `zaroxi-security-audit`, `zaroxi-security-validation` |
 
-## Where intelligence fits
+## 4. Workspace structure
 
-- Intelligence crates provide planning, context packing, embeddings, and agent capabilities.
-- Intelligence operates on copies or read-only views of domain/core state and returns suggestions, plans, or patches.
-- All apply-side effects from intelligence are mediated by application APIs.
-
-## Where security fits
-
-- Security crates model policies, perform validation, and emit audit events.
-- Runtime enforcement is at the application boundary.
-
-## Current state (post-Phase-18)
-
-- Architecture refactor phases 1–18 complete: desktop is a thin placement/render adapter.
-- All shared orchestration lives in `zaroxi-application-workspace::workspace_view` via 3 traits.
-- `ShellWorkContent` is the single content carrier for all panels.
-- AI panel content flows inline through `build_work_content()` — no separate carrier.
-- 47 desktop tests, 2 app-workspace unit, 9 architecture-contract tests all pass.
-- Architecture check: 395 PASS, 0 FAIL.
-- Disk-backed persistence, LSP, and full AI apply are intentionally not implemented yet.
-- Desktop harness exercises runtime flows and GPU shell rendering.
-
-## Verification
-
-```bash
-bash scripts/architecture_check.sh           # must PASS: 0 FAIL
-cargo test -p zaroxi-interface-desktop        # all 47 tests green
-cargo test -p zaroxi-application-workspace    # all tests green
-cargo run -p zaroxi-interface-desktop --bin gui_shell  # transcript stable
+```text
+apps/          # runnable binaries — composition roots (desktop harness)
+crates/        # ~145 layered library crates (zaroxi-<layer>-<name>)
+docs/          # this documentation set
+tooling/       # local CI + setup helpers (scripts, PowerShell)
+.github/       # workflows, issue templates, scripts (arch checkers)
+assets/        # bundled runtime assets (fonts)
 ```
+
+- **Library crates** (`crates/`) obey the layer rules strictly.
+- **Composition roots** (`apps/`) are the only place that may depend across many
+  layers at once — they wire ports to adapters and start the runtime.
+
+The runnable GUI binary, `gui_shell`, lives in `zaroxi-interface-desktop`; the
+end-to-end wiring example is `apps/zaroxi-desktop-harness`. Full details:
+[workspace-structure.md](workspace-structure.md).
+
+## 5. Runtime architecture
+
+At a high level:
+
+1. **Interface** (winit event loop in `zaroxi-interface-desktop`) turns OS input
+   into intents.
+2. Intents call **Application** use cases through thin delegates.
+3. **Application** runs **Domain** operations and reads/writes buffers via
+   **Core**.
+4. **Core** provides the mechanics: buffers and transactions
+   (`zaroxi-core-editor-*`), layout and GPU draw (`zaroxi-core-engine-*`), and
+   Tree-sitter syntax (`zaroxi-core-platform-syntax`).
+5. **Infrastructure** adapters handle persistence, transport, and OS specifics
+   behind ports.
+
+The desktop shell composes a single content carrier that every panel reads from,
+keeping the UI a placement/draw layer over shared logic. The concrete content and
+action flow, the rendering stack, and shell geometry are documented in
+[runtime-and-rendering.md](runtime-and-rendering.md).
+
+## 6. AI and editor architecture
+
+AI is modeled as a first-class layer, not an extension:
+
+- **Intelligence** crates (`zaroxi-intelligence-*`) hold agent, planning,
+  context, memory, tools, and safety logic. They operate on read-only views and
+  return plans/suggestions rather than mutating state directly.
+- **Application** owns the AI *ports* (`zaroxi-application-ai`), so the editor
+  talks to an interface, not a vendor.
+- **Domain** builds prompts and ranks/packs context (`zaroxi-domain-ai`).
+- **Core** carries inline-AI editing primitives (`zaroxi-core-editor-inline-ai`).
+
+What is real today: the layering, ports, panel, and context/prompt construction.
+The backing model adapter is currently a mock
+(`zaroxi-infrastructure-ai-mock`); a production apply pipeline is still evolving.
+See [ai-and-editor-flows.md](ai-and-editor-flows.md).
+
+## 7. Dependency rules and enforcement
+
+Rules are enforced by CI, not trusted to reviewers.
+
+**Hard gates** (fail the build — the `Architecture` workflow):
+
+- **No cycles** — `.github/scripts/check_circular_deps.py`.
+- **Crate naming** — `.github/scripts/check_crate_naming.py` enforces
+  `zaroxi-<layer>-<name>` for library crates.
+- **Family-aware layering** — `scripts/architecture_check.sh` enforces the
+  dependency direction with two deliberate exceptions:
+  - **Composition roots** (`apps/`) may depend across layers.
+  - **Infrastructure adapters** may depend on the **Application** crate whose
+    port they implement (the hexagonal adapter pattern).
+
+**Advisory reports** (non-blocking, uploaded as artifacts):
+
+- **Strict layer matrix** — `.github/scripts/check_layer_deps.py` reports against
+  the idealized matrix below (which does *not* encode the two exceptions above).
+- **Crate size** — `.github/scripts/check_crate_size.py`.
+
+Idealized layer matrix (`check_layer_deps.py`):
+
+| Source | May depend on |
+|---|---|
+| kernel | kernel |
+| core | kernel, core |
+| domain | kernel, core, domain |
+| application | kernel, core, domain, application |
+| interface | all layers |
+| intelligence / security | kernel, core, domain |
+| infrastructure | kernel, core |
+
+**`unsafe` policy.** `unsafe_code = "forbid"` is set workspace-wide. Exactly two
+crates are documented exceptions for unavoidable FFI/OS operations:
+`zaroxi-core-platform-syntax` (dynamic grammar loading) and
+`zaroxi-core-workspace-files` (memory mapping). Each `unsafe` block carries a
+`// SAFETY:` note.
+
+**Adding a crate or dependency.** Name it `zaroxi-<layer>-<name>`, add it to the
+root `Cargo.toml` members with `[lints] workspace = true`, and depend only
+inward. If you need something from an outer layer, move the shared contract down
+(usually to Core or Domain) or define a port in Application. Run the checks
+locally before pushing (§ [testing-and-quality.md](testing-and-quality.md)).
+
+## 8. How to read the codebase
+
+Recommended order for a new contributor:
+
+1. This document, then [workspace-structure.md](workspace-structure.md).
+2. Run the shell: `cargo run -p zaroxi-interface-desktop --bin gui_shell`.
+3. Follow the topic you care about:
+
+| I want to work on… | Start in |
+|---|---|
+| Desktop UI / shell | `zaroxi-interface-desktop`, then [runtime-and-rendering.md](runtime-and-rendering.md) |
+| Editor engine | `zaroxi-core-editor-buffer`, `zaroxi-core-engine-ui` |
+| Workspace / orchestration | `zaroxi-application-workspace` |
+| Syntax highlighting | `zaroxi-core-platform-syntax` |
+| AI features | `zaroxi-application-ai`, `zaroxi-intelligence-*`, [ai-and-editor-flows.md](ai-and-editor-flows.md) |
+
+## 9. Trade-offs
+
+- **Many crates** add manifest and boundary overhead, but keep compile units and
+  blast radius small and make the layer rules mechanically enforceable.
+- **A pure-Rust GPU stack** means more to build than reusing a browser, but buys
+  a native, dependency-light runtime with full control over rendering.
+- **CI-enforced architecture** adds friction to cross-layer shortcuts — which is
+  the point: it keeps the dependency graph honest as the project grows.
+
+## 10. Related docs
+
+- [system-context.md](system-context.md) — what the system is, actors, boundaries
+- [workspace-structure.md](workspace-structure.md) — layout, families, placement
+- [runtime-and-rendering.md](runtime-and-rendering.md) — shell, event loop, draw
+- [ai-and-editor-flows.md](ai-and-editor-flows.md) — AI/editor integration
+- [testing-and-quality.md](testing-and-quality.md) — CI and enforcement
+- [crates.md](crates.md) — crate catalog · [decisions/](decisions/) — ADRs

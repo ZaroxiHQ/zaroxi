@@ -6,15 +6,18 @@ Purpose: Concrete, delivery-oriented checkpoints from the project's current stat
 
 ## Where we are now
 
-- Architecture refactor (Phases 1–18) complete: desktop is a thin placement/render adapter.
-- All shared orchestration lives in `zaroxi-application-workspace` via `CloseContext`, `CommandBarContext`, and `RefreshContext` traits.
-- `ShellWorkContent` is the single content carrier for editor, explorer, terminal, and AI panels.
-- AI content flows inline through `build_work_content()` — no separate carrier.
-- Desktop action files reduced 67% (648 → 212 lines), all thin delegates.
-- 47 desktop + 2 app-workspace + 9 architecture-contract tests pass.
-- Architecture check: 395 PASS, 0 FAIL.
-- Working desktop harness: open/close, pending-close, command-bar, AI projection.
-- Disk-backed persistence, LSP, and full AI apply pipeline not yet implemented.
+- The desktop is a thin placement/render adapter; shared orchestration lives in
+  `zaroxi-application-workspace` behind a small set of traits.
+- `ShellWorkContent` is the single content carrier for editor, explorer,
+  terminal, and AI panels (see [runtime-and-rendering.md](runtime-and-rendering.md)).
+- Working desktop harness: open/close, pending-close, command bar, AI projection.
+- Cross-platform CI (Linux/macOS/Windows) with architecture, security, and
+  supply-chain gates all green.
+- Disk-backed persistence, an LSP client, and a full AI apply pipeline are not
+  yet implemented.
+
+For architecture context see [architecture.md](architecture.md); for the current
+AI state see [ai-and-editor-flows.md](ai-and-editor-flows.md).
 
 ---
 

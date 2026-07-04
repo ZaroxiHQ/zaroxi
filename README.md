@@ -120,8 +120,8 @@ Or run the full pipeline locally in one step:
 - Linux/macOS — `tooling/scripts/run-ci-local.sh`
 - Windows — `pwsh -File tooling/scripts/run-ci-windows.ps1`
 
-New to the codebase? Start with [`docs/architecture.md`](docs/architecture.md)
-and [`docs/crates.md`](docs/crates.md).
+New to the codebase? Start with the [documentation index](docs/README.md), then
+[`docs/architecture.md`](docs/architecture.md) and [`docs/development.md`](docs/development.md).
 
 ## Contributing
 

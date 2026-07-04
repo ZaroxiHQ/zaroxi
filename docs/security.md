@@ -44,4 +44,10 @@ Purpose: Explain realistic security goals, which crates own which responsibiliti
 - Add structured audit events for operations that change workspace state or permissions.
 - Add unit tests exercising validation and policy failure modes.
 
-Related: `docs/rpc.md` for guidance on validating remote requests and `docs/architecture.md` for enforcement boundaries.
+> This document describes the **security model** (which crates own what). To
+> **report a vulnerability**, use the private process in
+> [../.github/SECURITY.md](../.github/SECURITY.md) — do not open a public issue.
+
+Related: [rpc.md](rpc.md) for validating remote requests, [architecture.md](architecture.md)
+for enforcement boundaries, and [testing-and-quality.md](testing-and-quality.md)
+for `cargo audit` / `cargo deny`.

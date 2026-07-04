@@ -69,4 +69,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 - When adding/removing/renaming crates: update `Cargo.toml` workspace entries and this file (`docs/crates.md`).
 - Keep entries short and concrete — add a one-line purpose and one-line "start here" command to per-crate READMEs when possible.
 
-Related: `docs/architecture.md` (system boundaries) and `docs/MISSING_FILES.md` (current documentation gaps).
+Related: [architecture.md](architecture.md) (layer model), [workspace-structure.md](workspace-structure.md) (families, naming, placement), and the [docs index](README.md).
