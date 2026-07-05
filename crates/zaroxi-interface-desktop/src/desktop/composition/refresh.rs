@@ -354,6 +354,23 @@ pub async fn refresh_with_service(
     let authoritative_active =
         direct_active.or(current_opened_active.clone()).or(active_buf_opt.clone());
 
+    // ── Content-identity guard (root) ──
+    // `visible_window_opt` was fetched for `active_buf_opt` (the view's active
+    // editor document).  If the authoritative active buffer is a DIFFERENT
+    // document (e.g. a direct/large-file tab, or a post-close fallback whose
+    // identity was set independently of the view), then this window holds the
+    // WRONG file's text.  `build_work_content` would otherwise emit that text as
+    // the active `editor_body` under the authoritative file's identity — the
+    // exact "`.gitignore` tab shows `Cargo.toml` bytes" drift.  Drop the window
+    // so the body carries no foreign text; the correct content is sourced from
+    // the path-keyed rope/PieceTable stores (a blank/placeholder frame is
+    // acceptable, foreign content is not).
+    let visible_window_opt = match (&authoritative_active, &active_buf_opt) {
+        (Some(auth), Some(active)) if !super::same_opened_document(auth, active) => None,
+        (Some(_), None) => None,
+        _ => visible_window_opt,
+    };
+
     // Deduplicate per-item active flags: exactly one item may be active.
     // Without this, the service-reported active AND the direct-buffer active
     // can both carry `active: true`, producing double-highlighted tabs.

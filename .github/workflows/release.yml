@@ -5,13 +5,15 @@ name: Release
 #
 # Flow: Release Drafter maintains a DRAFT release from merged PRs. Publishing that
 # draft creates the vX.Y.Z tag and fires `release: published`, which runs this
-# workflow. Each OS job builds a release binary, packages it into an archive with
-# a SHA-256 checksum, and uploads both as release assets. Can also be dispatched
-# manually against an existing tag.
+# workflow. Pushing a `v*` tag manually also triggers the build so binaries are
+# always produced alongside a tag. Each OS job builds a release binary, packages it
+# into an archive with a SHA-256 checksum, and uploads both as release assets.
 
 on:
   release:
     types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -19,7 +21,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write   # upload assets to the release
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,8 +33,6 @@ jobs:
   release:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write   # upload assets to the release
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +69,7 @@ jobs:
         id: tag
         shell: bash
         run: |
-          TAG="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          TAG="${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}"
           if [ -z "$TAG" ]; then echo "No tag resolved" >&2; exit 1; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
@@ -137,8 +137,9 @@ jobs:
             ${{ env.CHECKSUM }}
           if-no-files-found: error
 
+      # Attach to the GitHub Release whether it was triggered by a published
+      # release OR a tag push — both produce a tag that maps to a Release.
       - name: Attach to the release
-        if: github.event_name == 'release'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,28 +1,24 @@
 name: Release Drafter
 
 on:
-  # Re-draft the next release whenever something lands on main.
   push:
-    branches: [ main ]
-  # Auto-label PRs so the drafter can categorise them. pull_request_target runs
-  # in the base-repo context so labelling also works for PRs from forks.
+    branches: [main]
   pull_request_target:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled]
 
 permissions:
-  contents: read
+  contents: write       # create/update the draft release
+  pull-requests: write  # autolabel PRs
 
 jobs:
   update_release_draft:
     name: Update draft release notes
     runs-on: ubuntu-latest
-    permissions:
-      contents: write        # create / update the draft release
-      pull-requests: write   # apply autolabeler labels
     steps:
       - name: Draft release & autolabel PRs
         uses: release-drafter/release-drafter@v7
         with:
           config-name: release-drafter.yml
+          commitish: main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

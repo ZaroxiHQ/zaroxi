@@ -559,6 +559,26 @@ mod tests {
     }
 
     #[test]
+    fn close_middle_active_falls_back_to_last_pinned() {
+        // Regression: closing a NON-last active pinned editor must fall back to
+        // the last pinned editor (EditorGroup policy).  This deliberately
+        // differs from the workspace service's "previous neighbor" policy; the
+        // close transaction is responsible for realigning the service to THIS
+        // choice so the explorer highlight can never diverge from the tab.
+        let mut g = EditorGroup::default();
+        for p in ["/a.rs", "/b.rs", "/c.rs", "/d.rs"] {
+            let (path, bid, disp, bk) = entry(p);
+            g.open_or_activate_pinned(path, bid, disp, bk, true);
+        }
+        // Activate the middle editor /b.rs, then close it.
+        g.activate_by_path("/b.rs");
+        assert_eq!(g.active_path(), Some("/b.rs"));
+        g.close(&"/b.rs".to_string());
+        assert_eq!(g.active_path(), Some("/d.rs"), "fallback is last pinned, not neighbor");
+        assert_eq!(g.pinned.len(), 3);
+    }
+
+    #[test]
     fn close_active_falls_back_to_preview() {
         let mut g = EditorGroup::default();
         let (p_pv, bid_pv, d_pv, bk) = entry("/preview.rs");

@@ -39,15 +39,39 @@ impl GuiApp {
         let canon = canonical_path_from_editor_id(target).to_string();
         let buffer_key = buffer_key_from_path(&canon);
 
+        // Was the document being closed the ACTIVE one?  Only the active
+        // document's content lives in the live rope; every other open document
+        // is parked in `open_documents` / `doc_buffers`.  This decides whether
+        // the live content must be re-bound to the fallback below: closing the
+        // active tab leaves the rope holding dead text, whereas closing an
+        // inactive tab must leave the active rope untouched.
+        let prev_active_canon = self
+            .committed_active_file
+            .as_deref()
+            .map(|s| canonical_path_from_editor_id(s).to_string());
+        let closing_active = prev_active_canon.as_deref() == Some(canon.as_str());
+
         // (2) EditorGroup is the sole tab authority: remove the editor and
         //     let it pick the next active editor (preview → last pinned →
         //     none).  This drives everything downstream.
         let closed_changed = self.editor_group.close(&canon);
         let next_active_path: Option<String> =
             self.editor_group.active_path().map(|p| p.to_string());
+        // EditorGroup is the SOLE authority for the active document.  Its close
+        // fallback (preview → last pinned) differs from the workspace service's
+        // fallback (previous neighbor), so unless we push EditorGroup's choice
+        // back into the service, the next `refresh_with_service` resurrects the
+        // service's own active buffer.  That service-derived active buffer drives
+        // both the explorer highlight and `build_work_content().active_file`, so
+        // the drift makes the editor body / explorer highlight disagree with the
+        // active tab.  Whether the fallback is a large-file (direct) buffer or a
+        // normal service-backed buffer decides which projection we realign.
+        let next_is_direct =
+            next_active_path.as_deref().map(|p| self.doc_buffers.contains_key(p)).unwrap_or(false);
 
         let mut opened_removed = false;
         let mut service_unregistered = false;
+        let mut service_active_aligned = false;
         {
             let Some(ref mut comp) = self.composition else { return };
             let sd = self.session_id.clone();
@@ -115,6 +139,34 @@ impl GuiApp {
                     eprintln!("ZAROXI_MEMORY: closed buffer {bid}");
                 }
             }
+
+            // ── Realign the active-buffer authority to EditorGroup ──
+            // The service's own close fallback may have selected a DIFFERENT
+            // document than EditorGroup did.  Force the service (or the direct
+            // large-file projection) to the exact document EditorGroup chose so
+            // no later refresh can drift the explorer highlight / work content
+            // away from the active tab.  Keyed by canonical identity via
+            // `buffer_key_from_path`.
+            if let Some(next) = next_active_path.as_deref() {
+                let next_bid = crate::ports::BufferId(buffer_key_from_path(next));
+                if next_is_direct {
+                    // Large-file (direct) fallback: activate it in the direct
+                    // projection so `refresh_with_service` keeps it authoritative.
+                    comp.set_direct_buffer_active(next_bid);
+                    service_active_aligned = true;
+                } else if let (Some(svc), Some(sid)) = (&self.workspace_service, &sd) {
+                    // Normal service-backed fallback: make the service's active
+                    // buffer match EditorGroup's choice.
+                    if let Ok(resp) = pollster::block_on(svc.set_active_buffer(
+                        crate::ports::SetActiveBufferRequest {
+                            session_id: sid.clone(),
+                            buffer_id: next_bid,
+                        },
+                    )) {
+                        service_active_aligned = resp.ok;
+                    }
+                }
+            }
         }
 
         // (6) Release the closed document's content state.  ALL of these
@@ -139,6 +191,19 @@ impl GuiApp {
         }
         if self.doc_buffers.is_empty() {
             self.large_file_mode = false;
+        }
+
+        // ── Identity truth: the closed tab's fallback, and confirmation that
+        //    the active-buffer authority (service / direct projection) was
+        //    realigned to EditorGroup so the explorer highlight can never
+        //    diverge from the active tab after a close. ──
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+            || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+        {
+            eprintln!(
+                "ZAROXI_IDENTITY: close_tab result closed={canon} next_active={} next_is_direct={next_is_direct} service_active_aligned={service_active_aligned}",
+                next_active_path.as_deref().unwrap_or("<none>"),
+            );
         }
 
         // ── Close-release truth (memory/state, not just UI) ──
@@ -175,17 +240,50 @@ impl GuiApp {
             );
         }
 
-        // (7) Reconcile committed_active_file to EditorGroup.active and
-        //     rebuild the work content for the fallback document.
+        // (7) Reconcile committed_active_file to EditorGroup.active AND
+        //     atomically re-bind the LIVE editor content object to the same
+        //     fallback document.
+        //
+        // Path metadata alone is not enough: the closed file's text is still in
+        // the live rope, and `build_work_content()` derives `editor_body` from
+        // the (now stale) `visible_window`, which still belongs to the closed /
+        // previously-active file.  If we only updated `committed_active_file`,
+        // the next commit — where `active_file_changed` is false because we just
+        // set the path — would keep that stale rope and later stamp it with the
+        // fallback's owner, rendering the WRONG file's text under the fallback
+        // tab.  So we bind the actual content object here, keyed by canonical
+        // path, and drop the stale visible-window text so no foreign body text
+        // can survive into the render source.
         match next_active_path.as_deref() {
             None => {
                 self.committed_active_file = None;
                 self.editor_buffer.replace_content("");
+                self.active_rope_owner_path = None;
                 self.tab_state
                     .open_or_focus_non_file(super::super::destination::WorkbenchTabId::Welcome);
             }
             Some(next) => {
                 self.committed_active_file = Some(buffer_key_from_path(next));
+                // Only rebind the live content when we closed the ACTIVE
+                // document (the rope now holds dead text).  Closing an inactive
+                // tab leaves the active document — and its rope — untouched.
+                if closing_active {
+                    self.rebind_live_content_to(next);
+                }
+            }
+        }
+        // When the active document changed (closed the active tab), drop the
+        // stale visible-window text and re-key the active-buffer details to the
+        // fallback's live content so `build_work_content()` cannot emit the
+        // previous file's text as the new active `editor_body`.  (Closing an
+        // inactive tab leaves the active window valid, so leave it alone.)
+        if closing_active
+            && let Some(ref mut comp) = self.composition
+            && let Some(ref mut meta) = comp.metadata
+        {
+            meta.visible_window = None;
+            if let Some(ref mut abd) = meta.active_buffer_details {
+                abd.line_count = self.editor_buffer.line_count();
             }
         }
         if let Some(ref mut comp) = self.composition {
@@ -213,7 +311,94 @@ impl GuiApp {
                 !self.doc_buffers.contains_key(&canon),
                 "close_transaction: {canon} still present in doc_buffers",
             );
+            // The live rope's content owner must equal the new active path (or
+            // be intentionally cleared when nothing remains).  This is the hard
+            // content-identity invariant that path metadata alone cannot give.
+            debug_assert!(
+                match (next_active_path.as_deref(), self.active_rope_owner_path.as_deref()) {
+                    (Some(next), Some(owner)) => super::editor_group::same_document(next, owner),
+                    // Owner may legitimately be None when the fallback content
+                    // is not resident yet (blank frame → hydrate) or no tab
+                    // remains; it must never point at a DIFFERENT document.
+                    (_, None) => true,
+                    (None, Some(_)) => false,
+                },
+                "close_transaction: rope owner {:?} does not match next active {:?}",
+                self.active_rope_owner_path,
+                next_active_path,
+            );
         }
+    }
+
+    /// Atomically re-bind the LIVE editor content object (`editor_buffer` +
+    /// `active_rope_owner_path` + `large_file_mode`) to the canonical `path`,
+    /// sourcing the text EXCLUSIVELY from the path-keyed content stores.
+    ///
+    /// This is the content-identity counterpart to the active-tab metadata:
+    /// after a close fallback (or any forced active-doc rebind) the rendered
+    /// text MUST come from the store keyed by the new active path — never from
+    /// a stale rope left over from the previous/closed file, and never from a
+    /// `work_content.editor_body` summary that may have been built for a
+    /// different document.  Resolution order:
+    ///   1. `open_documents[path]` — a parked normal (Rope) document, checked
+    ///      out whole so caret / selection / undo history are exactly restored.
+    ///   2. `doc_buffers[path]` — a large-file PieceTable backend; the rope is
+    ///      repopulated with the initial viewport window.
+    ///   3. neither resident — blank the rope and drop ownership so a temporary
+    ///      empty frame shows until the open pipeline hydrates the real file.
+    ///      A blank frame is acceptable; foreign content is not.
+    pub(crate) fn rebind_live_content_to(&mut self, path: &str) {
+        if let Some(stored) = self.open_documents.remove(path) {
+            self.editor_buffer = stored;
+            self.active_rope_owner_path = Some(path.to_string());
+            self.large_file_mode = false;
+        } else if let Some(db) = self.doc_buffers.get(path) {
+            let end = 200usize.min(db.total_lines());
+            let lines: Vec<String> =
+                db.lines_in_range(0, end.saturating_sub(1)).into_iter().map(|(_, s)| s).collect();
+            if lines.is_empty() {
+                self.editor_buffer.replace_content("");
+                self.active_rope_owner_path = None;
+            } else {
+                self.editor_buffer.populate_from_lines(&lines, 0, 0);
+                self.active_rope_owner_path = Some(path.to_string());
+            }
+            self.large_file_mode = true;
+        } else {
+            // Not resident: blank now; the follow-up request_open/commit_open
+            // (or the render owner-guard rehydrate) loads the correct content.
+            self.editor_buffer.replace_content("");
+            self.active_rope_owner_path = None;
+            self.large_file_mode = false;
+        }
+        if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
+            || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+        {
+            eprintln!(
+                "ZAROXI_IDENTITY: rebind_live_content path={} owner={} large_file_mode={} rope_lines={} content_fingerprint={:#018x}",
+                path,
+                self.active_rope_owner_path.as_deref().unwrap_or("<none>"),
+                self.large_file_mode,
+                self.editor_buffer.line_count(),
+                self.editor_content_fingerprint(),
+            );
+        }
+    }
+
+    /// Cheap, stable fingerprint of the LIVE editor content (rope) — a FNV-1a
+    /// hash of the leading bytes mixed with the char count.  Used to PROVE that
+    /// the rendered text object actually belongs to the active path, rather than
+    /// trusting the owner-path label alone (the label was the exact thing that
+    /// drifted in the wrong-content bug).
+    pub(crate) fn editor_content_fingerprint(&self) -> u64 {
+        let head = self.editor_buffer.raw_head(512);
+        let mut h: u64 = 0xcbf29ce484222325;
+        for b in head.as_bytes() {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x00000100000001b3);
+        }
+        h ^= self.editor_buffer.char_count() as u64;
+        h
     }
 
     /// Route a left mouse press/release to rail / sidebar / settings / tab
@@ -712,5 +897,516 @@ impl GuiApp {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod close_identity_tests {
+    use super::super::editor_group::BackendKind;
+    use super::super::test_support::make_headless_app;
+    use crate::desktop::{DesktopComposition, DesktopMetadata, OpenedBufferItem};
+    use crate::ports;
+    use crate::ports::BufferId;
+    use std::sync::{Arc, Mutex};
+
+    /// Fake WorkspaceService that RECORDS `set_active_buffer` calls and mimics
+    /// the real service's close fallback (previous neighbor).  This is exactly
+    /// the fallback policy that historically diverged from EditorGroup's
+    /// (preview → last pinned), producing the wrong-content / explorer-highlight
+    /// drift after a close.
+    struct RecordingSvc {
+        set_active_calls: Arc<Mutex<Vec<String>>>,
+    }
+    impl ports::WorkspaceService for RecordingSvc {
+        fn boot_workspace(
+            &self,
+            _req: ports::WorkspaceBootRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::WorkspaceBootResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownWorkspace) })
+        }
+        fn open_buffer(
+            &self,
+            _req: ports::OpenBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::OpenBufferResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn close_buffer(
+            &self,
+            _req: ports::CloseBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::CloseBufferResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Ok(ports::CloseBufferResponse { ok: true }) })
+        }
+        fn list_open_buffers(
+            &self,
+            _req: ports::ListBuffersRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::ListBuffersResponse, ports::UseCaseError>>
+        {
+            Box::pin(async {
+                Ok(ports::ListBuffersResponse { buffer_ids: Vec::new(), active_buffer: None })
+            })
+        }
+        fn set_active_buffer(
+            &self,
+            req: ports::SetActiveBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::SetActiveBufferResponse, ports::UseCaseError>>
+        {
+            self.set_active_calls.lock().unwrap().push(req.buffer_id.to_string());
+            Box::pin(async { Ok(ports::SetActiveBufferResponse { ok: true }) })
+        }
+        fn get_active_buffer(
+            &self,
+            _req: ports::GetActiveBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::GetActiveBufferResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn set_editor_cursor(
+            &self,
+            _req: ports::SetEditorCursorRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::SetEditorCursorResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn set_editor_selection(
+            &self,
+            _req: ports::SetSelectionRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::SetSelectionResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn clear_editor_selection(
+            &self,
+            _req: ports::ClearSelectionRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::ClearSelectionResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn get_editor_state(
+            &self,
+            _req: ports::GetEditorStateRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::GetEditorStateResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn set_viewport_state(
+            &self,
+            _req: ports::SetViewportRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::SetViewportResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn scroll_viewport(
+            &self,
+            _req: ports::ScrollViewportRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::ScrollViewportResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn explain_active_buffer(
+            &self,
+            _req: ports::GetActiveBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::NoActiveBuffer) })
+        }
+        fn dispatch_command(
+            &self,
+            _req: ports::DispatchCommandRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::DispatchCommandResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn update_buffer(
+            &self,
+            _req: ports::UpdateBufferRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::UpdateBufferResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn apply_text_transaction(
+            &self,
+            _req: ports::ApplyTextTransactionRequest,
+        ) -> ports::BoxFuture<
+            'static,
+            Result<ports::ApplyTextTransactionResponse, ports::UseCaseError>,
+        > {
+            Box::pin(async {
+                Ok(ports::ApplyTextTransactionResponse {
+                    ok: true,
+                    state: ports::EditorState {
+                        cursor: ports::EditorCursor::zero(),
+                        selection: None,
+                    },
+                    content: None,
+                })
+            })
+        }
+        fn get_recent_commands(
+            &self,
+            _req: ports::GetRecentCommandsRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::GetRecentCommandsResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Ok(ports::GetRecentCommandsResponse { commands: Vec::new() }) })
+        }
+        fn get_recent_events(
+            &self,
+            _req: ports::GetRecentEventsRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::GetRecentEventsResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Ok(ports::GetRecentEventsResponse { events: Vec::new() }) })
+        }
+        fn get_session_snapshot(
+            &self,
+            _req: ports::GetSessionSnapshotRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::GetSessionSnapshotResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn create_checkpoint(
+            &self,
+            _req: ports::CreateCheckpointRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::CreateCheckpointResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn save_checkpoint(
+            &self,
+            _req: ports::SaveCheckpointRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::SaveCheckpointResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn load_checkpoint(
+            &self,
+            _req: ports::LoadCheckpointRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::LoadCheckpointResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+        fn restore_checkpoint(
+            &self,
+            _req: ports::RestoreCheckpointRequest,
+        ) -> ports::BoxFuture<'static, Result<ports::RestoreCheckpointResponse, ports::UseCaseError>>
+        {
+            Box::pin(async { Err(ports::UseCaseError::UnknownSession) })
+        }
+    }
+
+    fn opened(path: &str, active: bool) -> OpenedBufferItem {
+        OpenedBufferItem {
+            buffer_id: BufferId(format!("buf:{path}")),
+            display: path.rsplit('/').next().map(|s| s.to_string()),
+            active,
+        }
+    }
+
+    use crate::gui::window::editor_buf::EditorBufferState;
+
+    fn buf_with(text: &str) -> EditorBufferState {
+        let mut b = EditorBufferState::empty();
+        b.replace_content(text);
+        b
+    }
+
+    fn visible_window_for(lines: &[&str]) -> crate::desktop::projections::VisibleWindowBasic {
+        crate::desktop::projections::VisibleWindowBasic {
+            top_line: 0,
+            total_lines: lines.len(),
+            lines: lines.iter().map(|s| s.to_string()).collect(),
+            cursor_line: Some(0),
+            cursor_column: Some(0),
+            selection_present: false,
+        }
+    }
+
+    /// THE regression for the deeper wrong-content bug: closing the ACTIVE tab
+    /// must rebind the LIVE editor content object to the fallback file, not just
+    /// the path metadata.  We assert the actual rope text fingerprint, not only
+    /// the active path — proving `.gitignore`'s tab can never show `Cargo.toml`'s
+    /// bytes even though the path metadata reports `.gitignore`.
+    #[test]
+    fn closing_active_tab_rebinds_live_content_to_fallback_not_stale_text() {
+        const CARGO: &str = "[package]\nname = \"zaroxi\"\nedition = \"2024\"";
+        const GITIGNORE: &str = "/target\n*.log\n.env";
+
+        let mut app = make_headless_app();
+        // Pin Cargo.toml then .gitignore; make Cargo.toml the ACTIVE editor.
+        app.editor_group.open_or_activate_pinned(
+            "/w/Cargo.toml".into(),
+            "buf:/w/Cargo.toml".into(),
+            "Cargo.toml".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            "/w/.gitignore".into(),
+            "buf:/w/.gitignore".into(),
+            ".gitignore".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.activate_by_path("/w/Cargo.toml");
+
+        // Live rope holds the ACTIVE file (Cargo.toml). The fallback (.gitignore)
+        // is parked in open_documents with its own DISTINCT content.
+        app.editor_buffer = buf_with(CARGO);
+        app.active_rope_owner_path = Some("/w/Cargo.toml".to_string());
+        app.committed_active_file = Some("buf:/w/Cargo.toml".to_string());
+        app.open_documents.insert("/w/.gitignore".to_string(), buf_with(GITIGNORE));
+
+        // Composition with a STALE visible_window belonging to Cargo.toml — the
+        // exact projection that historically leaked into `.gitignore`'s body.
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/Cargo.toml".to_string())),
+            opened_buffer_count: 2,
+            opened_buffers: vec![opened("/w/Cargo.toml", true), opened("/w/.gitignore", false)],
+            active_buffer_details: Some(crate::desktop::ActiveBufferDetails {
+                buffer_id: BufferId("buf:/w/Cargo.toml".to_string()),
+                display: Some("Cargo.toml".to_string()),
+                line_count: 3,
+            }),
+            visible_window: Some(visible_window_for(&["[package]", "name = \"zaroxi\""])),
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app.workspace_service =
+            Some(Arc::new(RecordingSvc { set_active_calls: Arc::new(Mutex::new(Vec::new())) }));
+
+        let cargo_fp = {
+            let mut a = make_headless_app();
+            a.editor_buffer = buf_with(CARGO);
+            a.editor_content_fingerprint()
+        };
+        let gitignore_fp = {
+            let mut a = make_headless_app();
+            a.editor_buffer = buf_with(GITIGNORE);
+            a.editor_content_fingerprint()
+        };
+
+        // Close the ACTIVE Cargo.toml tab.
+        app.close_editor_transactional("buf:/w/Cargo.toml");
+
+        // Path identity moved to the fallback.
+        assert_eq!(app.editor_group.active_path(), Some("/w/.gitignore"));
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/.gitignore"));
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/.gitignore"));
+
+        // CONTENT identity moved too: the live rope now holds .gitignore's bytes,
+        // NOT Cargo.toml's.  This is the assertion the previous fix lacked.
+        assert!(
+            app.editor_buffer.raw_head(64).starts_with("/target"),
+            "rope must show .gitignore content after close, got: {:?}",
+            app.editor_buffer.raw_head(64),
+        );
+        assert_eq!(app.editor_content_fingerprint(), gitignore_fp, "rope must equal .gitignore");
+        assert_ne!(
+            app.editor_content_fingerprint(),
+            cargo_fp,
+            "rope must NOT still hold Cargo.toml content under the .gitignore tab",
+        );
+
+        // The stale Cargo.toml visible-window must be dropped so it cannot be
+        // re-emitted as .gitignore's editor_body on the next build_work_content.
+        let vw = app
+            .composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .and_then(|m| m.visible_window.clone());
+        assert!(vw.is_none(), "stale visible_window must be cleared on active-tab close");
+
+        // Driving the real commit must NOT reintroduce foreign content.
+        app.commit_open();
+        assert_eq!(
+            app.editor_content_fingerprint(),
+            gitignore_fp,
+            "commit_open after close must preserve .gitignore content",
+        );
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/.gitignore"));
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/.gitignore"));
+    }
+
+    /// Closing an INACTIVE tab must leave the ACTIVE document's live content
+    /// untouched (guards the `closing_active` gate so we never blank the wrong
+    /// document).
+    #[test]
+    fn closing_inactive_tab_preserves_active_live_content() {
+        const A: &str = "AAAA content line\nsecond";
+        const B: &str = "BBBB other file\nsecond";
+
+        let mut app = make_headless_app();
+        app.editor_group.open_or_activate_pinned(
+            "/w/a.rs".into(),
+            "buf:/w/a.rs".into(),
+            "a.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            "/w/b.rs".into(),
+            "buf:/w/b.rs".into(),
+            "b.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        // a.rs is active (live rope); b.rs is parked.
+        app.editor_group.activate_by_path("/w/a.rs");
+        app.editor_buffer = buf_with(A);
+        app.active_rope_owner_path = Some("/w/a.rs".to_string());
+        app.committed_active_file = Some("buf:/w/a.rs".to_string());
+        app.open_documents.insert("/w/b.rs".to_string(), buf_with(B));
+
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/a.rs".to_string())),
+            opened_buffer_count: 2,
+            opened_buffers: vec![opened("/w/a.rs", true), opened("/w/b.rs", false)],
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app.workspace_service =
+            Some(Arc::new(RecordingSvc { set_active_calls: Arc::new(Mutex::new(Vec::new())) }));
+
+        let a_fp = app.editor_content_fingerprint();
+
+        // Close the INACTIVE b.rs.
+        app.close_editor_transactional("buf:/w/b.rs");
+
+        // Active identity + content are unchanged.
+        assert_eq!(app.editor_group.active_path(), Some("/w/a.rs"));
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/a.rs"));
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/a.rs"));
+        assert_eq!(app.editor_content_fingerprint(), a_fp, "active content must be untouched");
+        assert!(app.editor_buffer.raw_head(8).starts_with("AAAA"));
+    }
+
+    /// Regression: closing a NON-last active tab must realign the workspace
+    /// service's active buffer to EditorGroup's fallback so a later refresh can
+    /// never resurrect the service's own (previous-neighbor) choice — which is
+    /// what made the explorer highlight / editor body drift away from the
+    /// active tab.  EditorGroup is the single source of truth end to end.
+    #[test]
+    fn closing_middle_active_tab_realigns_service_to_editor_group_fallback() {
+        let mut app = make_headless_app();
+        let paths = ["/w/a.rs", "/w/b.rs", "/w/c.rs", "/w/d.rs"];
+        for p in paths {
+            app.editor_group.open_or_activate_pinned(
+                p.to_string(),
+                format!("buf:{p}"),
+                p.to_string(),
+                BackendKind::Rope,
+                true,
+            );
+        }
+        // Make the MIDDLE editor active (the divergence case).
+        app.editor_group.activate_by_path("/w/b.rs");
+        assert_eq!(app.editor_group.active_path(), Some("/w/b.rs"));
+
+        // Composition metadata mirrors the open set with b active.
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/b.rs".to_string())),
+            opened_buffer_count: 4,
+            opened_buffers: vec![
+                opened("/w/a.rs", false),
+                opened("/w/b.rs", true),
+                opened("/w/c.rs", false),
+                opened("/w/d.rs", false),
+            ],
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app.committed_active_file = Some("buf:/w/b.rs".to_string());
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        app.workspace_service = Some(Arc::new(RecordingSvc { set_active_calls: calls.clone() }));
+
+        // Close the active middle tab.
+        app.close_editor_transactional("buf:/w/b.rs");
+
+        // EditorGroup (sole authority) falls back to the last pinned editor.
+        assert_eq!(
+            app.editor_group.active_path(),
+            Some("/w/d.rs"),
+            "EditorGroup fallback must be the last pinned editor",
+        );
+
+        // The service was realigned to EditorGroup's choice (d), NOT left on
+        // its own previous-neighbor fallback (a).
+        let recorded = calls.lock().unwrap();
+        assert!(
+            recorded.iter().any(|s| s == "buf:/w/d.rs"),
+            "service active must be realigned to editor-group fallback /w/d.rs; recorded={recorded:?}",
+        );
+        assert!(
+            !recorded.iter().any(|s| s == "buf:/w/a.rs"),
+            "service must NOT be left on the neighbor /w/a.rs; recorded={recorded:?}",
+        );
+
+        // Tab identity (committed_active_file) and the projection metadata both
+        // follow EditorGroup — so explorer highlight and editor body cannot
+        // point at a different document than the active tab.
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/d.rs"));
+        let meta_active = app
+            .composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .and_then(|m| m.active_buffer.as_ref())
+            .map(|b| b.to_string());
+        assert_eq!(meta_active.as_deref(), Some("buf:/w/d.rs"));
+    }
+
+    /// Closing an INACTIVE tab must leave the active tab (and its identity)
+    /// untouched: no service realignment toward the closed tab or its neighbor.
+    #[test]
+    fn closing_inactive_tab_keeps_active_identity_stable() {
+        let mut app = make_headless_app();
+        for p in ["/w/a.rs", "/w/b.rs", "/w/c.rs"] {
+            app.editor_group.open_or_activate_pinned(
+                p.to_string(),
+                format!("buf:{p}"),
+                p.to_string(),
+                BackendKind::Rope,
+                true,
+            );
+        }
+        // Active is c (last-opened). Close the inactive a.
+        assert_eq!(app.editor_group.active_path(), Some("/w/c.rs"));
+
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/c.rs".to_string())),
+            opened_buffer_count: 3,
+            opened_buffers: vec![
+                opened("/w/a.rs", false),
+                opened("/w/b.rs", false),
+                opened("/w/c.rs", true),
+            ],
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app.committed_active_file = Some("buf:/w/c.rs".to_string());
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        app.workspace_service = Some(Arc::new(RecordingSvc { set_active_calls: calls.clone() }));
+
+        app.close_editor_transactional("buf:/w/a.rs");
+
+        // Active identity is unchanged.
+        assert_eq!(app.editor_group.active_path(), Some("/w/c.rs"));
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/c.rs"));
+        // Any realignment must target the still-active c, never the closed a.
+        let recorded = calls.lock().unwrap();
+        assert!(
+            !recorded.iter().any(|s| s == "buf:/w/a.rs"),
+            "must never realign to the closed tab; recorded={recorded:?}",
+        );
     }
 }

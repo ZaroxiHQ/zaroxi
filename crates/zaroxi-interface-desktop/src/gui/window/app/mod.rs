@@ -50,6 +50,8 @@ mod redraw;
 mod render_schedule;
 mod render_state;
 mod tabs;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod ui_nodes;
 
 use std::path::Path;
