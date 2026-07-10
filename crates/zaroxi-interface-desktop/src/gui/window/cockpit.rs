@@ -27,17 +27,35 @@ use zaroxi_interface_widgets::{
 const STATUS_H: f32 = 24.0;
 /// AI prediction gutter width (px) — spec: thin 16px right gutter.
 const PREDICTION_GUTTER_W: f32 = 16.0;
-/// Semantic minimap rail width (px).
-const MINIMAP_W: f32 = 84.0;
+/// Code minimap rail width (px). Reduced from 84 to 74 to leave a dedicated
+/// 10 px scrollbar lane at the editor's right edge, separating the minimap
+/// texture from the scrollbar thumb so there is no overlap and no stray
+/// vertical-line artifact.
+const MINIMAP_W: f32 = 74.0;
+/// Scrollbar lane width (px) at the outermost editor right edge, between
+/// the minimap and the AI assistant panel. The scrollbar thumb (8 px) floats
+/// in this lane with 1 px breathing room on each side.
+pub const SCROLLBAR_LANE_W: f32 = 10.0;
 
 /// The minimap rail rect `(x, y, w, h)` for a given editor content rect. The
-/// rail hugs the editor's right edge. Shared by the taffy layout pass and the
+/// rail hugs the editor's right edge, but leaves [`SCROLLBAR_LANE_W`] px at the
+/// outer edge for the scrollbar lane. Shared by the taffy layout pass and the
 /// desktop hit-testing for click/drag navigation so both agree exactly.
 pub fn minimap_rect(editor_rect: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
     let (ex, ey, ew, eh) = editor_rect;
-    let minimap_w = MINIMAP_W.min(ew.max(0.0));
-    let minimap_x = ex + (ew - minimap_w).max(0.0);
+    let lane_w = SCROLLBAR_LANE_W.min(ew.max(0.0));
+    let minimap_w = MINIMAP_W.min((ew - lane_w).max(0.0));
+    let minimap_x = ex + (ew - minimap_w - lane_w).max(0.0);
     (minimap_x, ey, minimap_w, eh)
+}
+
+/// The scrollbar lane rect `(x, y, w, h)` — positioned between the minimap's
+/// right edge and the editor content area's right edge (the AI panel boundary).
+pub fn scrollbar_lane_rect(editor_rect: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (ex, ey, ew, eh) = editor_rect;
+    let lane_w = SCROLLBAR_LANE_W.min(ew.max(0.0));
+    let lane_x = ex + (ew - lane_w).max(0.0);
+    (lane_x, ey, lane_w, eh)
 }
 
 /// Per-frame snapshot of the app state the cockpit widgets consume.
@@ -761,13 +779,19 @@ mod tests {
     fn overview_is_anchored_to_the_editor_edge() {
         // Given an editor content rect, the minimap/gutter must nest at the
         // editor's right edge (editor-owned), NOT at the window's far right.
+        // The minimap leaves `SCROLLBAR_LANE_W` px at the outer edge for the
+        // scrollbar lane, so the minimap's right edge is short of the editor's
+        // right edge by that amount.
         let inputs = sample();
         let (ex, ey, ew, eh) = inputs.editor_rect;
         let r = layout_regions(&inputs);
 
-        // Minimap right edge aligns with the editor's right edge.
         let minimap_right = r.minimap.location.x + r.minimap.size.width;
-        assert!((minimap_right - (ex + ew)).abs() < 0.5, "minimap must hug the editor right edge");
+        let expected_right = ex + ew - SCROLLBAR_LANE_W;
+        assert!(
+            (minimap_right - expected_right).abs() < 0.5,
+            "minimap right edge must leave room for the scrollbar lane (got {minimap_right}, expected {expected_right})",
+        );
         // ...and it sits well inside the window (the window is 1200 wide but the
         // editor ends at 900), proving it is not floating at the window edge.
         assert!(minimap_right < inputs.width - 100.0, "overview must not float at the window edge");

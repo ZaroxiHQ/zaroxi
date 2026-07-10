@@ -77,7 +77,11 @@ pub fn compute_scrollbar_blocks(
     let bottom_panel_region =
         crate::gui::region_dispatch::find_region_by_role(regions, PanelRole::BottomPanel);
 
-    // ── Editor scrollbar ──
+    // ── Editor scrollbar (thumb-only Zed-style, no visible track) ──
+    // The thumb floats at the outer edge of the content area. No track bar
+    // is rendered — the track was a full-height rectangle that overlapped the
+    // minimap rail, creating a stray vertical line between the editor text and
+    // the minimap. Only the draggable thumb is visible, like a modern IDE.
     if let Some(editor) = editor_region {
         let needs_scroll = editor_total_lines > editor_visible_lines.max(1);
         if needs_scroll && editor.rect.width > 20 && editor.rect.height > 40 {
@@ -86,40 +90,33 @@ pub fn compute_scrollbar_blocks(
             let ew = editor.rect.width as f32;
             let eh = editor.rect.height as f32;
 
-            // Compute proportional thumb ratio from visible/total lines
             let ratio = editor_visible_lines as f32 / editor_total_lines.max(1) as f32;
+            // Slightly wider + no inset so the thumb hugs the outer edge, outside
+            // the minimap, evenly away from the minimap texture.
+            let sb_w = 8.0f32;
+            let inset_r = 0.0f32;
             let spec = ScrollbarSpec {
-                sb_width: SB_EDITOR_SPEC.sb_width,
-                inset_right: SB_EDITOR_SPEC.inset_right,
+                sb_width: sb_w,
+                inset_right: inset_r,
                 track_inset_y: SB_EDITOR_SPEC.track_inset_y,
                 track_h_reduction: SB_EDITOR_SPEC.track_h_reduction,
                 thumb_ratio: ratio.clamp(0.05, 1.0),
                 thumb_min_h: SB_EDITOR_SPEC.thumb_min_h,
             };
-            let (sb_x, track_y, sb_w, track_h, thumb_h) =
+            let (sb_x, track_y, _sb_w, track_h, thumb_h) =
                 compute_scrollbar_geometry((ex, ey, ew, eh), &spec, 0.0);
-            let track_rect =
-                zaroxi_core_engine_render::Rect { x: sb_x, y: track_y, w: sb_w, h: track_h };
 
-            blocks.push(UiBlock {
-                id: "scrollbar_track_editor".to_string(),
-                rect: track_rect,
-                header_color: Some(tokens.editor_scrollbar_track.to_array()),
-                corner_radius: 3.0,
-                header_only: true,
-                ..Default::default()
-            });
-
+            // ── Thumb only (no track background) ──
             blocks.push(UiBlock {
                 id: "scrollbar_thumb_editor".to_string(),
                 rect: zaroxi_core_engine_render::Rect {
-                    x: track_rect.x,
-                    y: track_rect.y + editor_scroll_offset * (track_rect.h - thumb_h).max(0.0),
+                    x: sb_x,
+                    y: track_y + editor_scroll_offset * (track_h - thumb_h).max(0.0),
                     w: sb_w,
                     h: thumb_h,
                 },
                 header_color: Some(tokens.editor_scrollbar_thumb.to_array()),
-                corner_radius: 2.0,
+                corner_radius: 4.0,
                 header_only: true,
                 ..Default::default()
             });

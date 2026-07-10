@@ -77,8 +77,8 @@ pub const EDITOR_MIN_H: f32 = 40.0;
 
 // ── Scrollbar metrics ──
 
-pub const SB_EDITOR_WIDTH: f32 = 6.0;
-pub const SB_EDITOR_INSET_RIGHT: f32 = 3.0;
+pub const SB_EDITOR_WIDTH: f32 = 8.0;
+pub const SB_EDITOR_INSET_RIGHT: f32 = 0.0;
 pub const SB_EDITOR_TRACK_INSET_Y: f32 = 4.0;
 pub const SB_EDITOR_TRACK_H_REDUCTION: f32 = 8.0;
 pub const SB_EDITOR_THUMB_RATIO: f32 = 0.25;
@@ -99,8 +99,10 @@ pub const SB_BOTTOM_THUMB_RATIO: f32 = 0.3;
 pub const SB_BOTTOM_THUMB_MIN_H: f32 = 16.0;
 
 /// Extra width added to the left of the visual scrollbar for interactive hit area.
-/// The visual scrollbar rail is ~6px wide; this expands the clickable gutter to ~30px.
-pub const SB_INTERACTIVE_GUTTER_PAD: f32 = 24.0;
+/// The visual scrollbar thumb is ~8px wide; this expands the clickable gutter to ~10px.
+/// Kept small (2px) so the hit area stays within the scrollbar lane and never
+/// overlaps the minimap rail to its left.
+pub const SB_INTERACTIVE_GUTTER_PAD: f32 = 2.0;
 
 // ── Scrollbar spec structs (for compute_scrollbar_geometry) ──
 

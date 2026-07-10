@@ -16,10 +16,7 @@ so `desktop.rs` remains smaller and easier to navigate.
 /// Returns None when no metadata is present or no status is derivable.
 pub fn latest_status_bar_line(comp: &super::DesktopComposition) -> Option<super::StatusBarLine> {
     // Require metadata to produce a status line.
-    let meta = match &comp.metadata {
-        Some(m) => m,
-        None => return None,
-    };
+    let meta = comp.metadata.as_ref()?;
 
     // Helper to build sticky display (prefer active_buffer_details.display).
     let sticky =

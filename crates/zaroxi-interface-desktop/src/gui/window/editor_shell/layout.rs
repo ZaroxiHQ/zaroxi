@@ -88,7 +88,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     // ── Sidebar (fills remaining space above the rail) ──
     let sidebar_style = Style {
         flex_grow: 1.0,
-        min_size: Size { width: auto(), height: length(0.0) },
+        min_size: Size { width: auto(), height: length(0.0_f32) },
         ..Default::default()
     };
     let sidebar = taffy.new_leaf(sidebar_style).unwrap();
@@ -98,7 +98,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
         .new_with_children(
             Style {
                 flex_basis: length(SIDEBAR_BASIS_W),
-                min_size: Size { width: length(0.0), height: auto() },
+                min_size: Size { width: length(0.0_f32), height: auto() },
                 max_size: Size { width: length(SIDEBAR_BASIS_W), height: auto() },
                 flex_shrink: 3.0,
                 flex_direction: FlexDirection::Column,
@@ -112,7 +112,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     let gutter_style = Style {
         size: Size { width: length(GUTTER_W), height: auto() },
         flex_shrink: 1.0,
-        min_size: Size { width: length(0.0), height: auto() },
+        min_size: Size { width: length(0.0_f32), height: auto() },
         ..Default::default()
     };
     let gutter = taffy.new_leaf(gutter_style).unwrap();
@@ -120,7 +120,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     // ── Editor content (flex-grow 1 in the editor body row) ──
     let editor_body_style = Style {
         flex_grow: 1.0,
-        min_size: Size { width: length(0.0), height: auto() },
+        min_size: Size { width: length(0.0_f32), height: auto() },
         ..Default::default()
     };
     let editor_content = taffy.new_leaf(editor_body_style).unwrap();
@@ -163,7 +163,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
     // ── Assistant pane (shrinks before editor) ──
     let assistant_style = Style {
         flex_basis: length(ASSISTANT_BASIS_W),
-        min_size: Size { width: length(0.0), height: auto() },
+        min_size: Size { width: length(0.0_f32), height: auto() },
         max_size: Size { width: length(ASSISTANT_BASIS_W), height: auto() },
         flex_shrink: 3.0,
         ..Default::default()
@@ -176,7 +176,7 @@ pub fn compute_layout(window_w: f32, window_h: f32) -> EditorShellLayout {
             Style {
                 flex_grow: 1.0,
                 flex_direction: FlexDirection::Row,
-                min_size: Size { width: auto(), height: length(80.0) },
+                min_size: Size { width: auto(), height: length(80.0_f32) },
                 ..Default::default()
             },
             &[left_column, editor_col, assistant],

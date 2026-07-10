@@ -397,11 +397,8 @@ pub fn diagnostics_snapshot_for_uri(uri: &str) -> Option<DiagnosticsSnapshot> {
 impl DesktopComposition {
     pub fn latest_diagnostics_snapshot(&self) -> Option<DiagnosticsSnapshot> {
         let maybe_active = self.latest_active_buffer_details();
-        let uri = if let Some(ref abd) = maybe_active {
-            abd.display.clone().unwrap_or_else(|| abd.buffer_id.to_string())
-        } else {
-            return None;
-        };
+        let abd = maybe_active.as_ref()?;
+        let uri = abd.display.clone().unwrap_or_else(|| abd.buffer_id.to_string());
 
         diagnostics_snapshot_for_uri(&uri)
     }
