@@ -2577,8 +2577,7 @@ impl GuiApp {
                                     .committed_active_file
                                     .as_deref()
                                     .map(|s| s.strip_prefix("buf:").unwrap_or(s));
-                                let mm_max_rows2 =
-                                    (cockpit_editor_rect.3 as usize).clamp(64, 2000);
+                                let mm_max_rows2 = (cockpit_editor_rect.3 as usize).clamp(64, 2000);
                                 ensure_minimap_projection(
                                     &mut self.cockpit_minimap,
                                     &mut self.cockpit_minimap_key,
