@@ -11,6 +11,8 @@ license = "MIT"
 # system plugs in here by producing `SemanticColors`.
 zaroxi-interface-theme = { path = "../zaroxi-interface-theme" }
 zaroxi-domain-settings = { path = "../zaroxi-domain-settings" }
+# Pure minimap rendering data model (structure-first projection + mapping math).
+zaroxi-core-editor-minimap = { path = "../zaroxi-core-editor-minimap" }
 # GPU vector scene composition + flex/grid layout.
 vello = { workspace = true }
 taffy = { workspace = true }

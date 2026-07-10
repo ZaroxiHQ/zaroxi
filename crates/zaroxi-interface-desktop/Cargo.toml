@@ -18,8 +18,9 @@ pollster = "0.3"
 rfd = "0.15"
 bytemuck = "1.25.0"
 zaroxi-core-editor-largefile = { path = "../zaroxi-core-editor-largefile" }
+# Pure minimap projection data model (structure-first density + mapping math).
+zaroxi-core-editor-minimap = { path = "../zaroxi-core-editor-minimap" }
 # Text shaping & layout (Cosmic Text) — primary renderer for phase 15.
-# Use workspace-declared cosmic-text via `{ workspace = true }`.
 cosmic-text = { workspace = true }
 # Use the workspace font loader crate rather than reading assets directly.
 zaroxi-core-engine-font = { path = "../zaroxi-core-engine-font" }

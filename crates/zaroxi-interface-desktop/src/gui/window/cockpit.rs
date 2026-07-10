@@ -14,16 +14,13 @@
 //! fallback (`ZAROXI_LEGACY_SHELL_SURFACES=1`) is requested.
 
 use vello::Scene;
-use zaroxi_core_editor_rope::LineIndex;
-use zaroxi_core_platform_syntax::SymbolKind as SyntaxSymbolKind;
-use zaroxi_core_platform_syntax::highlight::HighlightSpan;
 use zaroxi_domain_settings::Settings;
 use zaroxi_interface_theme::{SemanticColors, ZaroxiTheme};
-use zaroxi_interface_widgets::components::{DiffHunk, MinimapSymbol};
+use zaroxi_interface_widgets::components::DiffHunk;
 use zaroxi_interface_widgets::{
     ActivityItem, ActivityRail, AiPredictionGutter, CommandPalette, InstrumentStatus,
-    LivingDiffLayer, PaletteItem, PredictionCell, SemanticMinimap, SettingsDropdownState,
-    SettingsRowHit, StatusBar, SymbolKind, WidgetTree,
+    LivingDiffLayer, Minimap, MinimapProjection, PaletteItem, PredictionCell,
+    SettingsDropdownState, SettingsRowHit, StatusBar, WidgetTree,
 };
 
 /// Status-bar height (px) used for the cockpit layout.
@@ -32,6 +29,16 @@ const STATUS_H: f32 = 24.0;
 const PREDICTION_GUTTER_W: f32 = 16.0;
 /// Semantic minimap rail width (px).
 const MINIMAP_W: f32 = 84.0;
+
+/// The minimap rail rect `(x, y, w, h)` for a given editor content rect. The
+/// rail hugs the editor's right edge. Shared by the taffy layout pass and the
+/// desktop hit-testing for click/drag navigation so both agree exactly.
+pub fn minimap_rect(editor_rect: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (ex, ey, ew, eh) = editor_rect;
+    let minimap_w = MINIMAP_W.min(ew.max(0.0));
+    let minimap_x = ex + (ew - minimap_w).max(0.0);
+    (minimap_x, ey, minimap_w, eh)
+}
 
 /// Per-frame snapshot of the app state the cockpit widgets consume.
 ///
@@ -74,14 +81,17 @@ pub struct CockpitInputs {
     pub rail_divider_color: [f32; 4],
     /// Editor line height in px (for diff/gutter row mapping).
     pub line_height: f32,
-    /// Total document line count.
-    pub total_lines: usize,
-    /// Minimap symbols `(line, kind)`.
-    pub minimap_symbols: Vec<MinimapSymbol>,
-    /// AI-modified line ranges for the minimap.
-    pub ai_regions: Vec<(usize, usize)>,
     /// Visible viewport fraction `(top, bottom)`.
     pub viewport: (f32, f32),
+    /// Structure-first code-minimap projection of the active document. Empty
+    /// (default) renders nothing, so partial wiring stays valid.
+    pub minimap_projection: MinimapProjection,
+    /// Caret line as a `[0,1]` fraction for the minimap current-line tick.
+    pub minimap_current_line: Option<f32>,
+    /// Search-match line positions as `[0,1]` fractions for minimap markers.
+    pub minimap_search_hits: Vec<f32>,
+    /// Active selection as a `[0,1]` `(top, bottom)` fraction for the minimap.
+    pub minimap_selection: Option<(f32, f32)>,
     /// Inline AI diff hunks.
     pub diff_hunks: Vec<DiffHunk>,
     /// AI prediction heat cells.
@@ -167,47 +177,6 @@ pub fn cockpit_surfaces_active() -> bool {
     !legacy_shell_surfaces()
 }
 
-/// Best-effort viewport fraction centered on the cursor line.
-///
-/// `EditorViewport` does not expose the first-visible line, so a precise visible
-/// band is not derivable; this approximates one around the cursor so the minimap
-/// thumb tracks editing. A precise band needs first-visible-line plumbing.
-pub fn cursor_viewport(cursor_line: usize, total_lines: usize) -> (f32, f32) {
-    if total_lines <= 1 {
-        return (0.0, 1.0);
-    }
-    let c = cursor_line as f32 / total_lines as f32;
-    let top = (c - 0.05).clamp(0.0, 0.95);
-    (top, (top + 0.15).min(1.0))
-}
-
-/// Map a syntax-layer structural [`SyntaxSymbolKind`] to the minimap's
-/// [`SymbolKind`]. Namespaces render as the minimap's "import" hairline glyph.
-fn to_widget_kind(kind: SyntaxSymbolKind) -> SymbolKind {
-    match kind {
-        SyntaxSymbolKind::Function => SymbolKind::Function,
-        SyntaxSymbolKind::Type => SymbolKind::Type,
-        SyntaxSymbolKind::Namespace => SymbolKind::Import,
-    }
-}
-
-/// Extract minimap symbols from full-document highlight `spans`.
-///
-/// Builds a byte→line [`LineIndex`] from `source` (whose byte offsets match the
-/// spans by the editor's document contract), runs the syntax layer's structural
-/// [`extract_symbols`](zaroxi_core_platform_syntax::extract_symbols), and maps
-/// each result onto a [`MinimapSymbol`]. Cost is `O(source_bytes)` for the line
-/// index plus `O(spans)`; callers should recompute only when the spans change.
-pub fn extract_minimap_symbols(spans: &[HighlightSpan], source: &str) -> Vec<MinimapSymbol> {
-    let line_index = LineIndex::from_str(source);
-    let doc_symbols =
-        zaroxi_core_platform_syntax::extract_symbols(spans, source, line_index.line_starts());
-    doc_symbols
-        .into_iter()
-        .map(|s| MinimapSymbol { line: s.line, kind: to_widget_kind(s.kind) })
-        .collect()
-}
-
 /// Region rectangles computed by the taffy pass.
 struct Regions {
     editor: taffy::Layout,
@@ -253,8 +222,7 @@ fn layout_regions(inputs: &CockpitInputs) -> Regions {
     // Minimap hugs the editor's right edge; the prediction gutter sits just
     // inside it. Both are clamped to the editor width so a narrow editor never
     // pushes them outside the pane.
-    let minimap_w = MINIMAP_W.min(ew);
-    let minimap_x = ex + (ew - minimap_w).max(0.0);
+    let (minimap_x, _, minimap_w, _) = minimap_rect((ex, ey, ew, eh));
     let gutter_w = PREDICTION_GUTTER_W.min((ew - minimap_w).max(0.0));
     let gutter_x = (minimap_x - gutter_w).max(ex);
 
@@ -399,11 +367,12 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
     // Semantic minimap (far right rail) — file-editor only.
     if inputs.file_editor_active {
         tree.push(
-            Box::new(SemanticMinimap {
-                symbols: inputs.minimap_symbols.clone(),
-                total_lines: inputs.total_lines,
-                ai_regions: inputs.ai_regions.clone(),
+            Box::new(Minimap {
+                projection: inputs.minimap_projection.clone(),
                 viewport: inputs.viewport,
+                current_line: inputs.minimap_current_line,
+                search_hits: inputs.minimap_search_hits.clone(),
+                selection: inputs.minimap_selection,
             }),
             regions.minimap,
         );
@@ -694,9 +663,7 @@ pub fn build_cockpit_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zaroxi_interface_widgets::{
-        AiBand, AiMode, ContextBand, HealthBand, LspStatus, MetaChips, SymbolKind,
-    };
+    use zaroxi_interface_widgets::{AiBand, AiMode, ContextBand, HealthBand, LspStatus, MetaChips};
 
     fn sample() -> CockpitInputs {
         CockpitInputs {
@@ -707,13 +674,16 @@ mod tests {
             editor_rect: (300.0, 60.0, 600.0, 700.0),
             status_rect: (0.0, 776.0, 1200.0, 24.0),
             line_height: 18.0,
-            total_lines: 320,
-            minimap_symbols: vec![
-                MinimapSymbol { line: 5, kind: SymbolKind::Function },
-                MinimapSymbol { line: 40, kind: SymbolKind::Type },
-            ],
-            ai_regions: vec![(30, 36)],
             viewport: (0.1, 0.25),
+            minimap_projection: MinimapProjection::from_lines(
+                ["fn a() {", "    let x = 1;", "}"].into_iter(),
+                3,
+                500,
+                4,
+            ),
+            minimap_current_line: Some(0.1),
+            minimap_search_hits: vec![0.4, 0.7],
+            minimap_selection: None,
             diff_hunks: vec![DiffHunk {
                 line: 2,
                 kind: zaroxi_interface_widgets::components::DiffKind::Added,
@@ -826,36 +796,6 @@ mod tests {
         let light = cockpit_tokens(ZaroxiTheme::Light, false);
         let dark = cockpit_tokens(ZaroxiTheme::Dark, true);
         assert_ne!(light.app_background.r, dark.app_background.r);
-    }
-
-    #[test]
-    fn cursor_viewport_is_bounded_and_tracks_cursor() {
-        assert_eq!(cursor_viewport(0, 0), (0.0, 1.0));
-        let (t0, b0) = cursor_viewport(0, 100);
-        assert!(t0 >= 0.0 && b0 <= 1.0 && t0 < b0);
-        let (t_top, _) = cursor_viewport(10, 100);
-        let (t_bot, _) = cursor_viewport(90, 100);
-        assert!(t_bot > t_top, "viewport top tracks cursor downward");
-    }
-
-    #[test]
-    fn extract_minimap_symbols_maps_kinds_and_lines() {
-        use zaroxi_core_platform_syntax::highlight::{Highlight, HighlightSpan};
-        let source = "fn run() {}\ntype Foo = u8;\nuse std::io;";
-        let fn_at = source.find("run").unwrap();
-        let ty_at = source.find("Foo").unwrap();
-        let ns_at = source.find("std").unwrap();
-        let spans = vec![
-            HighlightSpan { start: fn_at, end: fn_at + 3, highlight: Highlight::Function },
-            HighlightSpan { start: ty_at, end: ty_at + 3, highlight: Highlight::Type },
-            HighlightSpan { start: ns_at, end: ns_at + 3, highlight: Highlight::Namespace },
-        ];
-        let syms = extract_minimap_symbols(&spans, source);
-        assert_eq!(syms.len(), 3);
-        assert_eq!((syms[0].line, syms[0].kind), (0, SymbolKind::Function));
-        assert_eq!((syms[1].line, syms[1].kind), (1, SymbolKind::Type));
-        // Namespace maps to the minimap's import hairline glyph.
-        assert_eq!((syms[2].line, syms[2].kind), (2, SymbolKind::Import));
     }
 
     /// Instrument the full popup text path: build a cockpit frame with an open

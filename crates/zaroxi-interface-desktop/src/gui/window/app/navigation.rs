@@ -537,6 +537,32 @@ impl GuiApp {
                 return;
             }
         };
+        // ── Minimap click/drag navigation ─────────────────────────────────
+        // Intercept pointer events inside the minimap rail so clicking or
+        // dragging the rail scrolls the editor viewport. A press jumps the
+        // viewport to the clicked position; CursorMoved scrubs the viewport
+        // continuously; release stops the drag.
+        if let Some((mx, my, mw, mh)) = self.minimap_hit_rect
+            && x >= mx
+            && x < mx + mw
+            && y >= my
+            && y < my + mh
+        {
+            match state {
+                ElementState::Pressed => {
+                    self.minimap_dragging = true;
+                    self.minimap_jump_to(y, my, mh);
+                    return;
+                }
+                ElementState::Released => {
+                    if self.minimap_dragging {
+                        self.minimap_dragging = false;
+                        return;
+                    }
+                    self.minimap_jump_to(y, my, mh);
+                }
+            }
+        }
         debug::click_trace_fmt!(
             "ZAROXI_CLICK: MouseInput state={:?} x={:.1} y={:.1} btn_rect={:?}",
             state,
@@ -892,6 +918,29 @@ impl GuiApp {
             }
         }
         self.cached_settings_popup = None;
+        self.cockpit_status_fingerprint = 0;
+        self.needs_render = true;
+    }
+
+    /// Jump the editor viewport to the document line corresponding to the
+    /// minimap pointer position `y` inside the minimap rail `(my..my+mh)`.
+    pub(super) fn minimap_jump_to(&mut self, cursor_y: f32, rail_y: f32, rail_h: f32) {
+        let frac = ((cursor_y - rail_y) / rail_h.max(1.0)).clamp(0.0, 1.0);
+        let total = self.editor_buffer.total_lines();
+        let visible = self
+            .composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .and_then(|m| m.editor_viewport_line_count)
+            .unwrap_or(10)
+            .max(1);
+        let top = zaroxi_core_editor_minimap::top_line_for_fraction(frac, visible, total);
+        if let Some(ref mut comp) = self.composition
+            && let Some(ref mut meta) = comp.metadata
+        {
+            meta.editor_scroll_top_line = top;
+            meta.editor_scroll_px = top as f32 * lc::LINE_HEIGHT;
+        }
         self.cockpit_status_fingerprint = 0;
         self.needs_render = true;
     }

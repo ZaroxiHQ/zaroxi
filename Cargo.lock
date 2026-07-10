@@ -5049,6 +5049,7 @@ dependencies = [
  "zaroxi-application-workspace",
  "zaroxi-core-editor-buffer",
  "zaroxi-core-editor-largefile",
+ "zaroxi-core-editor-minimap",
  "zaroxi-core-editor-rope",
  "zaroxi-core-editor-view",
  "zaroxi-core-engine-clipboard",
@@ -5090,6 +5091,7 @@ version = "0.1.0"
 dependencies = [
  "taffy",
  "vello",
+ "zaroxi-core-editor-minimap",
  "zaroxi-domain-settings",
  "zaroxi-interface-theme",
 ]

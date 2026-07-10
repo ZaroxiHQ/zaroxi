@@ -353,13 +353,19 @@ pub struct GuiApp {
     /// Last explorer click: `(timestamp, explorer_index, open_token)` for
     /// double-click detection.
     pub last_explorer_click: Option<(std::time::Instant, usize, u64)>,
-    /// Structural minimap symbols (function/type/import) derived from
-    /// `latest_spans`, consumed by the cockpit's `SemanticMinimap`.  Recomputed
-    /// only when `cockpit_symbols_version` falls behind `latest_spans_version`
-    /// (i.e. after a reparse), so it is not rebuilt on every frame.
-    pub cockpit_minimap_symbols: Vec<zaroxi_interface_widgets::components::MinimapSymbol>,
-    /// `latest_spans_version` the `cockpit_minimap_symbols` were extracted from.
-    pub cockpit_symbols_version: u64,
+    /// Structure-first code-minimap projection of the active document, consumed
+    /// by the cockpit's `Minimap`. Rebuilt only when [`cockpit_minimap_key`]
+    /// changes (path / buffer version / row budget), never per frame.
+    pub cockpit_minimap: zaroxi_interface_widgets::MinimapProjection,
+    /// Cache key `(active_path, buffer_version, row_budget)` the current
+    /// [`cockpit_minimap`] projection was built for. A mismatch triggers a
+    /// rebuild; equality reuses the cached projection.
+    pub cockpit_minimap_key: (Option<String>, u64, usize),
+    /// Minimap rail hit rect `(x, y, w, h)` in window px, published each frame
+    /// when the file editor is active. Drives click/drag navigation.
+    pub minimap_hit_rect: Option<(f32, f32, f32, f32)>,
+    /// True while the pointer is dragging inside the minimap (viewport scrub).
+    pub minimap_dragging: bool,
     /// Cached git diff provider (per-file baseline + status cache).  The git
     /// lookup runs once per file; per-edit diffs reuse the cached baseline.
     pub git_diff_provider: zaroxi_core_platform_git::GitDiffProvider,

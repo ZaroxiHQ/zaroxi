@@ -52,111 +52,165 @@ fn stroke(scene: &mut Scene, width: f64, shape: &impl vello::kurbo::Shape, color
 }
 
 /// A filled diamond centered at `(cx, cy)` with half-extent `r` (for type symbols).
-fn diamond(cx: f64, cy: f64, r: f64) -> BezPath {
-    let mut p = BezPath::new();
-    p.move_to((cx, cy - r));
-    p.line_to((cx + r, cy));
-    p.line_to((cx, cy + r));
-    p.line_to((cx - r, cy));
-    p.close_path();
-    p
-}
+// ── Code Minimap (structure-first content overview) ───────────
+pub use zaroxi_core_editor_minimap::{MinimapProjection, MinimapRow, RowKind};
 
-// ── Component 1: Semantic Scroll & Minimap ──────────────────────────────────
-
-/// Kind of symbol shown in the semantic minimap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymbolKind {
-    /// Function — drawn as a filled block.
-    Function,
-    /// Type — drawn as a diamond.
-    Type,
-    /// Import — drawn as a thin line.
-    Import,
-}
-
-/// One symbol entry in the minimap.
-#[derive(Debug, Clone, Copy)]
-pub struct MinimapSymbol {
-    /// 0-based source line of the symbol.
-    pub line: usize,
-    /// Symbol kind (drives the glyph drawn).
-    pub kind: SymbolKind,
-}
-
-/// Component 1 — a meaning-aware minimap/scrollbar.
+/// A Zed-style code minimap: a compact, structure-first overview of the whole
+/// document rendered as a calm indentation/occupancy texture, with a crisp but
+/// restrained viewport window and secondary/tertiary overlays.
 ///
-/// **Vello:** background fill; function blocks (rounded rects), type diamonds
-/// (bezier path), import hairlines; AI-modified regions as translucent amber
-/// rects; a viewport thumb rect.
-/// **Layout (taffy):** a fixed-width right rail (e.g. width 84, full height).
-/// **Tokens:** `minimap_bg`, `sym_function`, `sym_type`, `sym_import`,
-/// `minimap_ai_region`, `accent` (thumb).
-/// **Animation:** none (static structural map).
-/// **A11y:** "Semantic minimap, N symbols; click a block to jump to its symbol."
-pub struct SemanticMinimap {
-    /// Symbols to plot.
-    pub symbols: Vec<MinimapSymbol>,
-    /// Total document line count (for line→y mapping).
-    pub total_lines: usize,
-    /// AI-modified line ranges `[start..=end]`, highlighted amber.
-    pub ai_regions: Vec<(usize, usize)>,
-    /// Visible viewport as a `[0,1]` fraction `(top, bottom)`.
+/// **Model:** consumes a pure [`MinimapProjection`] (one row per source line, or
+/// per band when the document is taller than the rail). The texture conveys code
+/// *shape* — indentation rhythm, blank gaps, dense vs sparse regions — not literal
+/// syntax; comments recede, code is brightest, blanks are gaps.
+///
+/// **Overlay priority (paint order, back → front):**
+/// 1. selection band (secondary context) — faint accent wash,
+/// 2. viewport fill (primary) — subtle accent-soft wash,
+/// 3. current-line tick (tertiary) — thin accent line,
+/// 4. search-hit marks (secondary markers) — crisp ticks in a dedicated right lane,
+/// 5. viewport border (primary) — a crisp 1px `border_strong` frame on top.
+///
+/// Nothing blows out contrast: the texture is low-alpha and monochrome-leaning,
+/// overlays are restrained, and large-file (`sampled`) projections render a touch
+/// calmer so the degraded mode still reads as intentional.
+///
+/// **Tokens:** `editor_gutter_background` (rail), `divider_subtle` (left seam),
+/// `text_secondary` / `syntax_comment` (texture), `accent_soft` / `border_strong`
+/// (viewport), `accent` (current line), `editor_find_highlight` (search).
+pub struct Minimap {
+    /// The structure-first projection of the document.
+    pub projection: MinimapProjection,
+    /// Visible viewport as a `[0, 1]` fraction `(top, bottom)` — the primary
+    /// overlay. Computed from real editor scroll state, not the cursor.
     pub viewport: (f32, f32),
+    /// Current caret line as a `[0, 1]` fraction — the tertiary overlay.
+    pub current_line: Option<f32>,
+    /// Search-match line positions as `[0, 1]` fractions — secondary markers.
+    pub search_hits: Vec<f32>,
+    /// Active selection as a `[0, 1]` `(top, bottom)` fraction — secondary wash.
+    pub selection: Option<(f32, f32)>,
 }
 
-impl SemanticMinimap {
-    fn y_of(&self, line: usize, top: f64, height: f64) -> f64 {
-        let frac =
-            if self.total_lines <= 1 { 0.0 } else { line as f64 / (self.total_lines - 1) as f64 };
-        top + frac * height
+impl Minimap {
+    /// Left seam + content padding inset.
+    const PAD_LEFT: f64 = 5.0;
+    /// Right padding before the search-marker lane.
+    const PAD_RIGHT: f64 = 3.0;
+    /// Width of the dedicated right lane reserved for search-hit ticks.
+    const MARKER_LANE: f64 = 4.0;
+
+    /// Texture color + alpha for a row, or `None` for a blank gap.
+    fn row_ink(&self, row: &MinimapRow, theme: &SemanticColors) -> Option<(ThemeColor, f32)> {
+        let calm = if self.projection.sampled { 0.85 } else { 1.0 };
+        match row.kind {
+            RowKind::Blank => None,
+            RowKind::Code => {
+                // Brightness rises gently with occupancy so dense code reads
+                // stronger, but stays low-contrast overall.
+                let a = (0.30 + row.occupancy * 0.22) * calm;
+                Some((theme.text_secondary, a))
+            }
+            RowKind::Comment => Some((theme.syntax_comment, 0.30 * calm)),
+        }
     }
 }
 
-impl ZaroxiWidget for SemanticMinimap {
+impl ZaroxiWidget for Minimap {
     fn layer(&self) -> WidgetLayer {
         WidgetLayer::Minimap
     }
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
+        if r.width() <= 0.0 || r.height() <= 0.0 {
+            return;
+        }
+        // Rail background — sits quietly, a hair distinct from the editor.
         fill(scene, &r, theme.editor_gutter_background);
+        // Left seam hairline so the rail reads as an edge instrument.
+        stroke(scene, 1.0, &Line::new((r.x0, r.y0), (r.x0, r.y1)), theme.divider_subtle);
 
-        // AI-modified regions (drawn first, behind symbols).
-        for (start, end) in &self.ai_regions {
-            let y0 = self.y_of(*start, r.y0, r.height());
-            let y1 = self.y_of(*end, r.y0, r.height()).max(y0 + 2.0);
-            fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.accent_soft);
+        let rows = self.projection.source_rows();
+        if rows == 0 {
+            return;
         }
 
-        let cx = (r.x0 + r.x1) * 0.5;
-        for sym in &self.symbols {
-            let y = self.y_of(sym.line, r.y0, r.height());
-            match sym.kind {
-                SymbolKind::Function => {
-                    let block = RoundedRect::new(r.x0 + 6.0, y - 2.0, r.x1 - 6.0, y + 2.0, 1.5);
-                    fill(scene, &block, theme.syntax_function);
-                }
-                SymbolKind::Type => fill(scene, &diamond(cx, y, 4.0), theme.syntax_type),
-                SymbolKind::Import => stroke(
-                    scene,
-                    1.0,
-                    &Line::new((r.x0 + 10.0, y), (r.x1 - 10.0, y)),
-                    theme.syntax_namespace,
-                ),
+        let lane_x0 = r.x0 + Self::PAD_LEFT;
+        let lane_x1 = (r.x1 - Self::PAD_RIGHT - Self::MARKER_LANE).max(lane_x0 + 1.0);
+        let lane_w = lane_x1 - lane_x0;
+        let height = r.height();
+        let row_h = height / rows as f64;
+        // A calm, thin mark height regardless of banding density.
+        let mark_h = (row_h * 0.62).clamp(0.6, 2.0);
+
+        // ── Structure texture ──────────────────────────────────────────────
+        for (i, row) in self.projection.rows.iter().enumerate() {
+            let Some((color, alpha)) = self.row_ink(row, theme) else {
+                continue;
+            };
+            let band_top = r.y0 + i as f64 * row_h;
+            let y = band_top + (row_h - mark_h) * 0.5;
+            let x0 = lane_x0 + row.indent as f64 * lane_w * 0.5;
+            let w = (row.occupancy as f64 * lane_w * (1.0 - row.indent as f64 * 0.35))
+                .max(1.0)
+                .min(lane_x1 - x0);
+            if w <= 0.0 {
+                continue;
             }
+            fill(scene, &Rect::new(x0, y, x0 + w, y + mark_h), color.with_alpha(alpha));
         }
 
-        // Viewport thumb.
-        let ty0 = r.y0 + self.viewport.0 as f64 * r.height();
-        let ty1 = r.y0 + self.viewport.1 as f64 * r.height();
-        let thumb = RoundedRect::new(r.x0 + 2.0, ty0, r.x1 - 2.0, ty1.max(ty0 + 8.0), 3.0);
-        fill(scene, &thumb, theme.accent_soft);
-        stroke(scene, 1.0, &thumb, theme.accent);
+        // ── Overlays (back → front, priority: viewport > search > current) ──
+        // (1) Selection band — faint context wash.
+        if let Some((t, b)) = self.selection {
+            let y0 = r.y0 + t.clamp(0.0, 1.0) as f64 * height;
+            let y1 = (r.y0 + b.clamp(0.0, 1.0) as f64 * height).max(y0 + 2.0);
+            fill(scene, &Rect::new(r.x0, y0, r.x1, y1), theme.accent_soft.with_alpha(0.14));
+        }
+
+        // (2) Viewport fill — the primary overlay, kept subtle.
+        let vy0 = r.y0 + self.viewport.0.clamp(0.0, 1.0) as f64 * height;
+        let vy1 = (r.y0 + self.viewport.1.clamp(0.0, 1.0) as f64 * height).max(vy0 + 6.0);
+        let viewport_rect = RoundedRect::new(r.x0 + 1.5, vy0, r.x1 - 1.5, vy1, 2.5);
+        fill(scene, &viewport_rect, theme.accent_soft.with_alpha(0.10));
+
+        // (3) Current-line tick — tertiary, thin, sits above the viewport fill.
+        if let Some(frac) = self.current_line {
+            let y = r.y0 + frac.clamp(0.0, 1.0) as f64 * height;
+            stroke(
+                scene,
+                1.0,
+                &Line::new((lane_x0, y), (lane_x1, y)),
+                theme.accent.with_alpha(0.55),
+            );
+        }
+
+        // (4) Search-hit marks — secondary, in the dedicated right lane only, so
+        // they never fight the texture. Crisp and elegant, never a slab.
+        let marker_x0 = r.x1 - Self::PAD_RIGHT - Self::MARKER_LANE;
+        let marker_x1 = r.x1 - Self::PAD_RIGHT;
+        for frac in &self.search_hits {
+            let y = r.y0 + frac.clamp(0.0, 1.0) as f64 * height;
+            let mh = 2.0f64.min(row_h.max(1.0));
+            fill(
+                scene,
+                &Rect::new(marker_x0, y - mh * 0.5, marker_x1, y + mh * 0.5),
+                theme.editor_find_highlight,
+            );
+        }
+
+        // (5) Viewport border — the clearest cue, crisp on top of everything.
+        stroke(scene, 1.0, &viewport_rect, theme.border_strong);
     }
 
     fn a11y_label(&self) -> Option<String> {
-        Some(format!("Semantic minimap, {} symbols; click a block to jump.", self.symbols.len()))
+        Some(format!(
+            "Code minimap: {} lines. Viewport at {:.0}%–{:.0}%. Click or drag to navigate.",
+            self.projection.total_lines,
+            self.viewport.0 * 100.0,
+            self.viewport.1 * 100.0,
+        ))
     }
 }
 
@@ -2439,20 +2493,6 @@ mod tests {
     fn all_components_paint_without_panic_and_report_layer() {
         let theme = SemanticColors::dark();
         let mut scene = Scene::new();
-
-        let minimap = SemanticMinimap {
-            symbols: vec![
-                MinimapSymbol { line: 1, kind: SymbolKind::Function },
-                MinimapSymbol { line: 5, kind: SymbolKind::Type },
-                MinimapSymbol { line: 9, kind: SymbolKind::Import },
-            ],
-            total_lines: 100,
-            ai_regions: vec![(10, 20)],
-            viewport: (0.1, 0.3),
-        };
-        assert_eq!(minimap.layer(), WidgetLayer::Minimap);
-        minimap.paint(&mut scene, &layout(84.0, 600.0), &theme);
-        assert!(minimap.a11y_label().is_some());
 
         let diff = LivingDiffLayer {
             hunks: vec![

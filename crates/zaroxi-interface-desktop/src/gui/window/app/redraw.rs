@@ -246,7 +246,6 @@ fn current_fps_estimate() -> Option<u32> {
 fn instrument_status_fingerprint(
     s: &zaroxi_interface_widgets::InstrumentStatus,
     size: (u32, u32),
-    symbols_version: u64,
     diff_version: u64,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -260,7 +259,6 @@ fn instrument_status_fingerprint(
     s.ai.tokens_used.hash(&mut h);
     s.rtl.hash(&mut h);
     size.hash(&mut h);
-    symbols_version.hash(&mut h);
     diff_version.hash(&mut h);
     h.finish()
 }
@@ -304,6 +302,54 @@ fn record_frame_presented() {
         dt_ms,
         if dt_ms > 0.0 { 1000.0 / dt_ms } else { 0.0 }
     );
+}
+
+/// Rebuild the structure-first minimap projection for the active document when
+/// the cache key has changed, otherwise reuse the cached projection.
+fn ensure_minimap_projection(
+    cached: &mut zaroxi_interface_widgets::MinimapProjection,
+    key: &mut (Option<String>, u64, usize),
+    active_path: Option<&str>,
+    editor_buffer: &crate::gui::window::editor_buf::EditorBufferState,
+    doc_buffers: &std::collections::HashMap<String, zaroxi_core_editor_largefile::DocumentBuffer>,
+    max_rows: usize,
+) {
+    let version = editor_buffer.buffer_version;
+    let new_key = (active_path.map(|s| s.to_string()), version, max_rows);
+    if *key == new_key {
+        return;
+    }
+    *key = new_key.clone();
+    *cached =
+        if let (Some(_), Some(db)) = (active_path, active_path.and_then(|p| doc_buffers.get(p))) {
+            let total = db.total_lines();
+            zaroxi_interface_widgets::MinimapProjection::from_sampled(
+                total,
+                max_rows,
+                crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH,
+                |line| db.lines_in_range(line, line).into_iter().next().map(|(_, s)| s),
+            )
+        } else {
+            let text = editor_buffer.to_string();
+            let total = editor_buffer.total_lines();
+            zaroxi_interface_widgets::MinimapProjection::from_lines(
+                text.lines(),
+                total,
+                max_rows,
+                crate::gui::window::editor_buf::EditorBufferState::TAB_WIDTH,
+            )
+        };
+    if super::doc_lifecycle_trace_enabled()
+        || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+    {
+        eprintln!(
+            "ZAROXI_MINIMAP: minimap_projection_recomputed rows={} total_lines={} sampled={} path={}",
+            cached.source_rows(),
+            cached.total_lines,
+            cached.sampled,
+            active_path.unwrap_or("<none>"),
+        );
+    }
 }
 
 impl GuiApp {
@@ -1811,7 +1857,6 @@ impl GuiApp {
                 // Built here so the cockpit scene is available
                 // for this frame's render pass, not next frame's.
                 {
-                    let cur_line = self.editor_buffer.caret_line();
                     let do_cockpit = super::super::cockpit::cockpit_surfaces_active();
                     if do_cockpit {
                         let rail_style_colors = (
@@ -1884,7 +1929,6 @@ impl GuiApp {
                         let fp = instrument_status_fingerprint(
                             &instrument_status,
                             (sw, sh),
-                            self.cockpit_symbols_version,
                             self.cockpit_diff_version,
                         );
                         let skip =
@@ -1963,6 +2007,64 @@ impl GuiApp {
                                 super::super::destination::cockpit_panels_for(
                                     self.tab_state.active(),
                                 );
+                            // ── Pre-compute minimap fields for CockpitInputs ──
+                            let active_path_deref = self
+                                .committed_active_file
+                                .as_deref()
+                                .map(|s| s.strip_prefix("buf:").unwrap_or(s));
+                            let mm_max_rows = (cockpit_editor_rect.3 as usize).clamp(64, 2000);
+                            ensure_minimap_projection(
+                                &mut self.cockpit_minimap,
+                                &mut self.cockpit_minimap_key,
+                                active_path_deref,
+                                &self.editor_buffer,
+                                &self.doc_buffers,
+                                mm_max_rows,
+                            );
+                            let mm_viewport = {
+                                let scroll_top = self
+                                    .composition
+                                    .as_ref()
+                                    .and_then(|c| c.metadata.as_ref())
+                                    .map(|m| m.editor_scroll_top_line)
+                                    .unwrap_or(0);
+                                let visible = self
+                                    .composition
+                                    .as_ref()
+                                    .and_then(|c| c.metadata.as_ref())
+                                    .and_then(|m| m.editor_viewport_line_count)
+                                    .unwrap_or(10)
+                                    .max(1);
+                                zaroxi_core_editor_minimap::viewport_fraction(
+                                    scroll_top,
+                                    visible,
+                                    editor_total_lines,
+                                )
+                            };
+                            let mm_current_line = zaroxi_core_editor_minimap::line_fraction(
+                                self.editor_buffer.caret_line(),
+                                editor_total_lines,
+                            );
+                            let mm_selection =
+                                self.editor_buffer.selection_line_range().map(|(sl, el)| {
+                                    (
+                                        zaroxi_core_editor_minimap::line_fraction(
+                                            sl,
+                                            editor_total_lines,
+                                        ),
+                                        zaroxi_core_editor_minimap::line_fraction(
+                                            el,
+                                            editor_total_lines,
+                                        ),
+                                    )
+                                });
+                            // ── Minimap rail rect for hit-testing ──
+                            if self.tab_state.is_editor_active() {
+                                self.minimap_hit_rect =
+                                    Some(super::super::cockpit::minimap_rect(cockpit_editor_rect));
+                            } else {
+                                self.minimap_hit_rect = None;
+                            }
                             let mut inputs = super::super::cockpit::CockpitInputs {
                                 width: sw as f32,
                                 height: sh as f32,
@@ -2005,8 +2107,6 @@ impl GuiApp {
                                 rail_text_muted: rail_style_colors.4,
                                 rail_divider_color: rail_style_colors.5,
                                 line_height: lc::LINE_HEIGHT,
-                                total_lines: editor_total_lines,
-                                minimap_symbols: self.cockpit_minimap_symbols.clone(),
                                 diff_hunks: diff_hunks_to_viewport(
                                     &self.cockpit_diff_hunks,
                                     self.large_file_mode,
@@ -2024,10 +2124,11 @@ impl GuiApp {
                                     self.editor_buffer.buffer_version,
                                     self.cockpit_diff_version,
                                 ),
-                                viewport: super::super::cockpit::cursor_viewport(
-                                    cur_line,
-                                    editor_total_lines,
-                                ),
+                                viewport: mm_viewport,
+                                minimap_projection: self.cockpit_minimap.clone(),
+                                minimap_current_line: Some(mm_current_line),
+                                minimap_search_hits: Vec::new(),
+                                minimap_selection: mm_selection,
                                 status: instrument_status,
                                 settings_panel: dp_settings.clone(),
                                 settings: Some(self.settings.clone()),
@@ -2131,11 +2232,8 @@ impl GuiApp {
                                 })
                                 .collect()
                         };
-                        let cockpit_bytes_est =
-                            self.cockpit_minimap_symbols.len().saturating_mul(64)
-                                + self.cockpit_diff_hunks.len().saturating_mul(32)
-                                + 1024;
-                        self.cockpit_retained_bytes = cockpit_bytes_est;
+                        self.cockpit_retained_bytes =
+                            self.cockpit_diff_hunks.len().saturating_mul(32) + 1024;
                     }
                 }
                 // ── end cockpit build ───────────────────────────
@@ -2358,46 +2456,9 @@ impl GuiApp {
                                 self.theme_mode,
                                 system_is_dark,
                             );
-                            // Track retained cockpit size (symbols, hunks).
-                            let cockpit_bytes_est =
-                                self.cockpit_minimap_symbols.len().saturating_mul(64)
-                                    + self.cockpit_diff_hunks.len().saturating_mul(32)
-                                    + 1024;
-                            self.cockpit_retained_bytes = cockpit_bytes_est;
-                            // Live state via disjoint field access (core
-                            // is mutably borrowed, so avoid &self methods).
-                            let cur_line = self.editor_buffer.caret_line();
-                            // Refresh structural minimap symbols only when
-                            // a fresh parse result arrived (spans change on
-                            // reparse, not per frame): incremental
-                            // invalidation, no per-frame full-file rescan.
-                            // Disjoint field access keeps this clear of the
-                            // `core` borrow above.
-                            if self.latest_spans_version != self.cockpit_symbols_version {
-                                let symbols = if self.large_file_mode {
-                                    // Large files skip span-based symbols to
-                                    // avoid materializing the whole document.
-                                    Vec::new()
-                                } else {
-                                    match self.latest_spans.as_ref() {
-                                        Some(spans) if !spans.is_empty() => {
-                                            let source = self.editor_buffer.to_string();
-                                            super::super::cockpit::extract_minimap_symbols(
-                                                spans, &source,
-                                            )
-                                        }
-                                        _ => Vec::new(),
-                                    }
-                                };
-                                eprintln!(
-                                    "ZAROXI_COCKPIT_SYMBOLS: recomputed n={} spans_version={} large_file={}",
-                                    symbols.len(),
-                                    self.latest_spans_version,
-                                    self.large_file_mode,
-                                );
-                                self.cockpit_minimap_symbols = symbols;
-                                self.cockpit_symbols_version = self.latest_spans_version;
-                            }
+                            // Track retained cockpit size.
+                            self.cockpit_retained_bytes =
+                                self.cockpit_diff_hunks.len().saturating_mul(32) + 1024;
                             // Refresh git diff change markers when the buffer
                             // version advances (per edit / on open). Idempotent and
                             // already run before the fingerprint above, so this is a
@@ -2479,7 +2540,6 @@ impl GuiApp {
                             let fp = instrument_status_fingerprint(
                                 &instrument_status,
                                 (sw, sh),
-                                self.cockpit_symbols_version,
                                 self.cockpit_diff_version,
                             );
                             let fp_match =
@@ -2487,11 +2547,8 @@ impl GuiApp {
                             self.cockpit_status_fingerprint = fp;
                             if fp_match {
                                 // Cockpit unchanged — already built pre-render.
-                                let cockpit_bytes_est =
-                                    self.cockpit_minimap_symbols.len().saturating_mul(64)
-                                        + self.cockpit_diff_hunks.len().saturating_mul(32)
-                                        + 1024;
-                                self.cockpit_retained_bytes = cockpit_bytes_est;
+                                self.cockpit_retained_bytes =
+                                    self.cockpit_diff_hunks.len().saturating_mul(32) + 1024;
                             } else {
                                 let workbench_tabs = super::annotate_tabs_dirty(
                                     self.tab_state.projected_tabs(
@@ -2515,6 +2572,66 @@ impl GuiApp {
                                     super::super::destination::cockpit_panels_for(
                                         self.tab_state.active(),
                                     );
+                                // ── Pre-compute minimap fields for CockpitInputs ──
+                                let active_path_deref2 = self
+                                    .committed_active_file
+                                    .as_deref()
+                                    .map(|s| s.strip_prefix("buf:").unwrap_or(s));
+                                let mm_max_rows2 =
+                                    (cockpit_editor_rect.3 as usize).clamp(64, 2000);
+                                ensure_minimap_projection(
+                                    &mut self.cockpit_minimap,
+                                    &mut self.cockpit_minimap_key,
+                                    active_path_deref2,
+                                    &self.editor_buffer,
+                                    &self.doc_buffers,
+                                    mm_max_rows2,
+                                );
+                                let mm_viewport2 = {
+                                    let scroll_top = self
+                                        .composition
+                                        .as_ref()
+                                        .and_then(|c| c.metadata.as_ref())
+                                        .map(|m| m.editor_scroll_top_line)
+                                        .unwrap_or(0);
+                                    let visible = self
+                                        .composition
+                                        .as_ref()
+                                        .and_then(|c| c.metadata.as_ref())
+                                        .and_then(|m| m.editor_viewport_line_count)
+                                        .unwrap_or(10)
+                                        .max(1);
+                                    zaroxi_core_editor_minimap::viewport_fraction(
+                                        scroll_top,
+                                        visible,
+                                        editor_total_lines,
+                                    )
+                                };
+                                let mm_current_line2 = zaroxi_core_editor_minimap::line_fraction(
+                                    self.editor_buffer.caret_line(),
+                                    editor_total_lines,
+                                );
+                                let mm_selection2 =
+                                    self.editor_buffer.selection_line_range().map(|(sl, el)| {
+                                        (
+                                            zaroxi_core_editor_minimap::line_fraction(
+                                                sl,
+                                                editor_total_lines,
+                                            ),
+                                            zaroxi_core_editor_minimap::line_fraction(
+                                                el,
+                                                editor_total_lines,
+                                            ),
+                                        )
+                                    });
+                                // ── Minimap rail rect for hit-testing ──
+                                if self.tab_state.is_editor_active() {
+                                    self.minimap_hit_rect = Some(
+                                        super::super::cockpit::minimap_rect(cockpit_editor_rect),
+                                    );
+                                } else {
+                                    self.minimap_hit_rect = None;
+                                }
                                 let mut inputs = super::super::cockpit::CockpitInputs {
                                     width: sw as f32,
                                     height: sh as f32,
@@ -2563,11 +2680,6 @@ impl GuiApp {
                                     rail_text_muted: rail_style_colors.4,
                                     rail_divider_color: rail_style_colors.5,
                                     line_height: lc::LINE_HEIGHT,
-                                    total_lines: editor_total_lines,
-                                    // Live structural symbols (function/type/
-                                    // import) from tree-sitter highlight spans
-                                    // mapped to lines via the rope byte index.
-                                    minimap_symbols: self.cockpit_minimap_symbols.clone(),
                                     // Live git change markers (added/modified/
                                     // removed) for the active file.
                                     diff_hunks: diff_hunks_to_viewport(
@@ -2587,12 +2699,13 @@ impl GuiApp {
                                         self.editor_buffer.buffer_version,
                                         self.cockpit_diff_version,
                                     ),
-                                    // Cursor-centered viewport band for the
-                                    // minimap thumb, from live editor state.
-                                    viewport: super::super::cockpit::cursor_viewport(
-                                        cur_line,
-                                        editor_total_lines,
-                                    ),
+                                    // Accurate viewport band + structure-first
+                                    // minimap projection from live editor state.
+                                    viewport: mm_viewport2,
+                                    minimap_projection: self.cockpit_minimap.clone(),
+                                    minimap_current_line: Some(mm_current_line2),
+                                    minimap_search_hits: Vec::new(),
+                                    minimap_selection: mm_selection2,
                                     // Typed instrument-panel status model (the
                                     // three bands), built from the shared context
                                     // presenter + runtime health/AI telemetry.

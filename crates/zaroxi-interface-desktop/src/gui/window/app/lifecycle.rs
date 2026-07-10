@@ -220,9 +220,16 @@ impl winit::application::ApplicationHandler for GuiApp {
                     if self.editor_selection_active() {
                         editor_interaction::update_drag_selection(self, position);
                     }
+                    // Minimap drag scrub: follow pointer while minimap_dragging.
+                    if self.minimap_dragging
+                        && let Some((_mx, my, _mw, mh)) = self.minimap_hit_rect
+                    {
+                        self.minimap_jump_to(position.y as f32, my, mh);
+                    }
                 }
             }
             WindowEvent::CursorLeft { .. } => {
+                self.minimap_dragging = false;
                 if let Some(ref mut tree) = self.widget_tree {
                     let actions = self.interaction.on_pointer_leave(tree);
                     self.handle_actions(actions);

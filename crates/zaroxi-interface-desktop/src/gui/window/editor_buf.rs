@@ -166,6 +166,16 @@ impl EditorBufferState {
         &self.rope
     }
 
+    /// Return the active selection as a `(start_line, end_line)` pair
+    /// (0-based, inclusive), or `None` when there is no selection.
+    pub fn selection_line_range(&self) -> Option<(usize, usize)> {
+        let anchor = self.selection_anchor?;
+        let c = self.caret();
+        let (sl, _) = self.rope.char_index_to_line_col(c.min(anchor));
+        let (el, _) = self.rope.char_index_to_line_col(c.max(anchor));
+        Some((sl, el))
+    }
+
     /// After an edit, returns the range of logical lines that were affected
     /// (first_changed_line, last_changed_line_exclusive). None means
     /// no edit was tracked or a full rebuild is needed.

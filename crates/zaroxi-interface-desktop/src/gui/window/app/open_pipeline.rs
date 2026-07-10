@@ -822,9 +822,6 @@ impl GuiApp {
             self.cached_editor_spans_version = 0;
             self.cached_editor_active_file = None;
             // Reset per-file cockpit state.
-            self.cockpit_minimap_symbols.clear();
-
-            self.cockpit_symbols_version = 0;
             self.cockpit_diff_hunks.clear();
             self.cockpit_diff_version = 0;
             self.cockpit_retained_bytes = 0;
