@@ -838,6 +838,16 @@ impl GuiApp {
         }
 
         let mut backgrounded = false;
+        // Tracks whether a syntax parse was scheduled for the incoming document
+        // during THIS commit (via `finalize_buffer_commit`, which stamps
+        // `latest_spans_owner`/version to the active file). Syntax identity is
+        // tracked SEPARATELY from content identity: a commit can leave the rope
+        // correctly owned yet skip every materialize/restore branch (the
+        // close-time fallback `rope_already_owns_active` case), which would leave
+        // the syntax pipeline bound to the PREVIOUS document. The end-of-commit
+        // syntax-continuity guard uses this flag to reattach syntax when no
+        // branch scheduled it.
+        let mut syntax_scheduled = false;
         // ── Shared first-open materialization gate (Rope + PieceTable) ──
         // Large files hydrate the rope unconditionally from `doc_buffers` in the
         // block further below (the canonical PieceTable rebuild). Normal,
@@ -858,7 +868,28 @@ impl GuiApp {
         // loading→ready transition, mirroring the large-file unconditional
         // hydration so normal and large files share one first-open contract.
         let body_has_content = wc.editor_body.as_ref().is_some_and(|b| !b.lines.is_empty());
+        // ── Content-identity guard (steady-state / post-close rebind) ──
+        // The live rope, keyed by `active_rope_owner_path`, is the single
+        // source of truth for the active document's bytes. When the active
+        // document did NOT change this commit (`active_file_changed == false`)
+        // and the rope ALREADY authoritatively owns the active path with real
+        // content, the incoming `wc.editor_body` is only a re-projection of
+        // the SAME document — or, after a close fallback, a stale/foreign
+        // summary that `build_work_content` synthesized from a cleared
+        // `visible_window` (i.e. the closed file's presenter snippet). In both
+        // cases re-materializing it is wrong: it is at best redundant and at
+        // worst stamps foreign bytes under the active identity (the
+        // wrong-content bug, incl. the single-line collapse when the summary
+        // was a one-line snippet). The rope already holds the correct bytes —
+        // never overwrite it here. A genuine loading→ready transition leaves
+        // the rope blank (owner cleared) so it does NOT match and still
+        // materializes normally.
+        let rope_already_owns_active = !active_file_changed
+            && new_doc_key.is_some()
+            && self.active_rope_owner_path.as_deref() == new_doc_key.as_deref()
+            && self.editor_buffer.char_count() > 0;
         let needs_rope_materialize = !restored_from_store
+            && !rope_already_owns_active
             && wc.editor_body.is_some()
             && (buffer_changed
                 || (!self.large_file_mode
@@ -866,13 +897,14 @@ impl GuiApp {
                     && self.editor_buffer.char_count() == 0));
         if first_open_trace_enabled() {
             eprintln!(
-                "ZAROXI_DEBUG_FIRST_OPEN: commit token={} kind={} buffer_changed={} body_present={} body_has_content={} rope_char_count={} needs_materialize={} active_file={:?}",
+                "ZAROXI_DEBUG_FIRST_OPEN: commit token={} kind={} buffer_changed={} body_present={} body_has_content={} rope_char_count={} rope_already_owns_active={} needs_materialize={} active_file={:?}",
                 token,
                 if self.large_file_mode { "large" } else { "normal" },
                 buffer_changed,
                 wc.editor_body.is_some(),
                 body_has_content,
                 self.editor_buffer.char_count(),
+                rope_already_owns_active,
                 needs_rope_materialize,
                 wc.active_file,
             );
@@ -965,6 +997,7 @@ impl GuiApp {
                 // `buffer_changed` is false), so arm the first-paint / parse
                 // burst unconditionally here.
                 self.finalize_buffer_commit(true);
+                syntax_scheduled = true;
                 if first_open_trace_enabled() {
                     eprintln!(
                         "ZAROXI_DEBUG_FIRST_OPEN: materialized_rope token={} lines={} rope_lines={} rope_chars={} buffer_changed={}",
@@ -1006,6 +1039,7 @@ impl GuiApp {
         // this commit for all edited/restored documents.
         if restored_from_store {
             self.finalize_buffer_commit(true);
+            syntax_scheduled = true;
         }
         // ── Loading-state commit: buffer changed but no content yet ──
         // The explorer click path returns a ShellWorkContent with
@@ -1039,7 +1073,12 @@ impl GuiApp {
         // the rope must be populated from doc_buffers.  When the document
         // was already open and the view state was restored above via the
         // checkout path, this block is skipped — the rope was already
-        // populated covering the restored scroll position.
+        // populated covering the restored scroll position.  It is ALSO skipped
+        // when `rope_already_owns_active` holds (a close-driven large-file
+        // fallback): `rebind_live_content_to` already rebuilt the rope window to
+        // COVER the saved scroll and placed the caret, so re-hydrating from
+        // line 0 here would reset the caret to the stale `editor_body` cursor
+        // and drop the restored viewport.
         //
         // The initial window is viewport-sized (~200 lines, enough for the
         // first visible screenful plus overscan).  The rope is extended
@@ -1048,6 +1087,7 @@ impl GuiApp {
         // the PieceTable without resetting the rope start (line 0).
         if self.large_file_mode
             && !restored_from_store
+            && !rope_already_owns_active
             && let Some(ref body) = wc.editor_body
         {
             if let Some(ref active_path) = wc.active_file
@@ -1071,6 +1111,7 @@ impl GuiApp {
                 }
                 // Schedule initial syntax parse on the viewport slice.
                 self.finalize_buffer_commit(true);
+                syntax_scheduled = true;
                 if doc_lifecycle_trace_enabled() {
                     let ws = self.editor_buffer.window_start_line;
                     eprintln!(
@@ -1146,6 +1187,128 @@ impl GuiApp {
         // read a stale cross-file identity.
         self.assert_active_consistency();
         self.last_committed_activation_seq = self.activation_seq;
+        // ── Identity trace (Part 1): prove the rope's bytes and the active
+        // path label come from the same document after every commit. Emits the
+        // owner path, committed path, live content fingerprint and byte prefix
+        // so a stale foreign body can never hide behind a correct path label. ──
+        if doc_lifecycle_trace_enabled()
+            || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+        {
+            let head = self.editor_buffer.raw_head(48);
+            eprintln!(
+                "ZAROXI_IDENTITY: commit_open committed={:?} rope_owner={:?} large_file_mode={} rope_lines={} materialized={} fingerprint={:#018x} head={:?}",
+                self.committed_active_file.as_deref(),
+                self.active_rope_owner_path.as_deref(),
+                self.large_file_mode,
+                self.editor_buffer.line_count(),
+                needs_rope_materialize,
+                self.editor_content_fingerprint(),
+                head,
+            );
+        }
+        // ── Content-identity invariant (Part 6) ──
+        // The live rope's content owner MUST canonically match the committed
+        // active file whenever the rope carries content.  This is the hard
+        // guarantee that path identity and content identity never diverge: a
+        // commit can never leave the active tab rendering another document's
+        // bytes (or a stale one-line snippet stamped with the wrong owner).
+        // Owner may legitimately be `None` while a background/blank frame
+        // hydrates; it must never point at a DIFFERENT document than committed.
+        #[cfg(debug_assertions)]
+        {
+            use super::editor_group::same_document;
+            if let (Some(owner), Some(committed)) =
+                (self.active_rope_owner_path.as_deref(), self.committed_active_file.as_deref())
+            {
+                debug_assert!(
+                    same_document(owner, committed),
+                    "commit_open: rope owner {owner:?} diverged from committed active {committed:?} — content identity violated",
+                );
+            }
+        }
+        // ── Syntax-identity continuity (decoupled from content identity) ──
+        // Content ownership and SYNTAX ownership are separate concerns. A commit
+        // can leave the live rope correctly owned by the active file while the
+        // syntax pipeline (spans + parse worker + per-file caches + language)
+        // still belongs to the PREVIOUS document — the exact close-time fallback
+        // case: the rope was rebound in place (`rope_already_owns_active`) so
+        // neither the materialize, restore, nor large-file branch ran
+        // `finalize_buffer_commit`, and no parse was scheduled for the fallback.
+        // The render-side span gate then rejects the stale/foreign spans
+        // (owner or version mismatch) and the file renders as PLAIN TEXT even
+        // though its bytes are correct.
+        //
+        // Treat a visually-reactivated document as a FIRST-CLASS syntax event,
+        // identical to a normal open: when no branch scheduled syntax this
+        // commit and the stored spans do not describe THIS file at its current
+        // buffer version, drop the stale per-file syntax state and schedule a
+        // fresh parse. Gated so it never fires for:
+        //   - backgrounded heavy opens (the worker finalizes on ready),
+        //   - loading placeholders (blank rope, real content arrives next),
+        //   - empty ropes (nothing to highlight),
+        // and it is a no-op in steady state (spans already own the active file),
+        // so it cannot cause a recompute loop.
+        if !syntax_scheduled
+            && !backgrounded
+            && !self.visible_loading_state
+            && self.editor_buffer.char_count() > 0
+        {
+            let buffer_version = self.editor_buffer.buffer_version;
+            let syntax_valid_for_active = self.latest_spans.is_some()
+                && self.latest_spans_owner.as_deref() == self.committed_active_file.as_deref()
+                && self.latest_spans_version == buffer_version;
+            if !syntax_valid_for_active {
+                // Drop every scrap of the previous document's syntax state so no
+                // stale span, baseline, parse result, or per-line cache can
+                // survive the rebind and paint the wrong (or no) colours.
+                self.latest_spans = None;
+                self.latest_spans_version = 0;
+                self.latest_spans_owner = None;
+                self.last_good_highlight = None;
+                if let Some(ref mut worker) = self.parse_worker {
+                    worker.clear_result();
+                }
+                self.line_syntax_cache.clear();
+                self.cached_line_hashes.clear();
+                self.cached_editor_data = None;
+                self.cached_editor_lines_hash = 0;
+                self.cached_editor_spans_version = 0;
+                if syntax_trace_enabled()
+                    || doc_lifecycle_trace_enabled()
+                    || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+                {
+                    eprintln!(
+                        "ZAROXI_SYNTAX_TRACE: syntax_refresh reason=fallback_reactivation path={:?} lang={:?} buffer_version={} owner_before=<stale>",
+                        self.committed_active_file.as_deref(),
+                        self.current_language,
+                        buffer_version,
+                    );
+                }
+                // Reattach syntax exactly like a normal open (eager sync for
+                // normal files, deferred worker for large/huge files).
+                self.finalize_buffer_commit(true);
+                if syntax_trace_enabled()
+                    || doc_lifecycle_trace_enabled()
+                    || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
+                {
+                    eprintln!(
+                        "ZAROXI_SYNTAX_TRACE: styled_runs_recomputed path={:?} spans_version={} spans_owner={:?} span_count={} lang={:?}",
+                        self.committed_active_file.as_deref(),
+                        self.latest_spans_version,
+                        self.latest_spans_owner.as_deref(),
+                        self.latest_spans.as_ref().map(|s| s.len()).unwrap_or(0),
+                        self.current_language,
+                    );
+                }
+            } else if syntax_trace_enabled() {
+                eprintln!(
+                    "ZAROXI_SYNTAX_TRACE: syntax_cache_reused path={:?} allowed=true spans_version={} lang={:?}",
+                    self.committed_active_file.as_deref(),
+                    self.latest_spans_version,
+                    self.current_language,
+                );
+            }
+        }
         // ── View-model reconciliation for edited/restored normal documents ──
         // When the rope was NOT (re)built from `wc.editor_body` this commit
         // (`needs_rope_materialize == false`) but the active normal document has

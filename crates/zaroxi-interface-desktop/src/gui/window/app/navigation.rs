@@ -273,21 +273,40 @@ impl GuiApp {
             }
         }
         // When the active document changed (closed the active tab), drop the
-        // stale visible-window text and re-key the active-buffer details to the
-        // fallback's live content so `build_work_content()` cannot emit the
+        // stale visible-window text so `build_work_content()` cannot emit the
         // previous file's text as the new active `editor_body`.  (Closing an
         // inactive tab leaves the active window valid, so leave it alone.)
+        // NOTE: `active_buffer_details.line_count` and the fallback's scroll are
+        // already re-keyed to the fallback's own content by
+        // `rebind_live_content_to` above — do NOT overwrite them here (that would
+        // clobber the restored large-file total and the restored scroll).
         if closing_active
             && let Some(ref mut comp) = self.composition
             && let Some(ref mut meta) = comp.metadata
         {
             meta.visible_window = None;
-            if let Some(ref mut abd) = meta.active_buffer_details {
-                abd.line_count = self.editor_buffer.line_count();
-            }
         }
         if let Some(ref mut comp) = self.composition {
-            let wc = comp.build_work_content();
+            let mut wc = comp.build_work_content();
+            // ── Content + view-state authority guard (active close) ──
+            // `rebind_live_content_to` above is the SOLE authority for the
+            // fallback's content AND view state on an active close: it restored
+            // the rope bytes, rope ownership, caret, and scroll from the
+            // fallback's own resident stores (or disk, or blank). When the
+            // fallback is NOT resident the rope is blank, and the
+            // `build_work_content()` `editor_body` here is a stale re-projection
+            // of the CLOSED file (cleared visible_window / presenter snippet)
+            // that `commit_open` would materialize into the blank rope, stamping
+            // foreign bytes under the fallback identity. Strip it so `commit_open`
+            // takes the no-materialize loading path; the async pipeline hydrates
+            // the real content. (When the fallback IS resident the rope already
+            // has content — `editor_body` is kept but `commit_open`'s
+            // `rope_already_owns_active` / large-file reactivation guards prevent
+            // it from overwriting the restored viewport.)
+            // A blank frame is acceptable; foreign content is not.
+            if closing_active && self.editor_buffer.char_count() == 0 {
+                wc.editor_body = None;
+            }
             self.request_open(wc);
             self.tab_state.focus_tab(&super::super::destination::WorkbenchTabId::Editor);
             self.rail_selected_index = 0;
@@ -332,38 +351,107 @@ impl GuiApp {
 
     /// Atomically re-bind the LIVE editor content object (`editor_buffer` +
     /// `active_rope_owner_path` + `large_file_mode`) to the canonical `path`,
-    /// sourcing the text EXCLUSIVELY from the path-keyed content stores.
+    /// AND restore that document's saved VIEW STATE (scroll + caret), sourcing
+    /// everything EXCLUSIVELY from the path-keyed resident stores.
     ///
-    /// This is the content-identity counterpart to the active-tab metadata:
-    /// after a close fallback (or any forced active-doc rebind) the rendered
-    /// text MUST come from the store keyed by the new active path — never from
-    /// a stale rope left over from the previous/closed file, and never from a
-    /// `work_content.editor_body` summary that may have been built for a
-    /// different document.  Resolution order:
+    /// This is the content-identity AND view-state-identity counterpart to the
+    /// active-tab metadata: after a close fallback the rendered text MUST come
+    /// from the store keyed by the new active path — never from a stale rope
+    /// left over from the closed file, and never from a `work_content.editor_body`
+    /// summary built for a different document — and the viewport MUST resume at
+    /// the fallback's last scroll/caret rather than snapping to top-of-file.
+    /// This close-driven reactivation is a real view-state event even though
+    /// `commit_open` will skip content rematerialization (`active_file_changed`
+    /// is false because the close pre-set `committed_active_file`); if the
+    /// checkout path there is skipped, the restore MUST still happen here.
+    ///
+    /// Resident state beats disk every time.  Resolution order:
     ///   1. `open_documents[path]` — a parked normal (Rope) document, checked
-    ///      out whole so caret / selection / undo history are exactly restored.
+    ///      out whole so rope + caret + selection + undo history are exactly
+    ///      restored; scroll comes from `document_view_states[path]`.
     ///   2. `doc_buffers[path]` — a large-file PieceTable backend; the rope is
-    ///      repopulated with the initial viewport window.
-    ///   3. neither resident — blank the rope and drop ownership so a temporary
+    ///      repopulated with a window that COVERS the saved scroll position and
+    ///      the caret is placed from the saved view state.
+    ///   3. File on disk (normal size) — synchronously read the raw bytes so
+    ///      the fallback tab's own content appears immediately after a close.
+    ///      Guards on file size (< LARGE_THRESHOLD) so we never block on huge
+    ///      files; those remain blank until the async pipeline hydrates them.
+    ///   4. neither resident — blank the rope and drop ownership so a temporary
     ///      empty frame shows until the open pipeline hydrates the real file.
     ///      A blank frame is acceptable; foreign content is not.
     pub(crate) fn rebind_live_content_to(&mut self, path: &str) {
+        // Consume the saved view state (scroll + caret) for this path. It is the
+        // authoritative resume position for the fallback and is applied below
+        // regardless of which backend supplies the bytes. Removing it (rather
+        // than peeking) prevents a stale entry from leaking, mirroring the
+        // `commit_open` checkout which also removes on restore.
+        let saved_view = self.document_view_states.remove(path);
+        let saved_scroll = saved_view.as_ref().map(|v| v.scroll_top).unwrap_or(0);
+        let saved_caret_line = saved_view.as_ref().map(|v| v.caret_line).unwrap_or(0);
+        let saved_caret_col = saved_view.as_ref().map(|v| v.caret_col).unwrap_or(0);
+        let mut resident_source = "none";
+        let mut large_total_lines: Option<usize> = None;
+
         if let Some(stored) = self.open_documents.remove(path) {
+            // Normal resident doc: the parked full state already carries the
+            // exact caret/selection/undo history, so keep it intact — rebuilding
+            // the rope would drop undo history. Only the scroll (which lives in
+            // composition metadata, not the buffer) needs restoring, below.
             self.editor_buffer = stored;
             self.active_rope_owner_path = Some(path.to_string());
             self.large_file_mode = false;
+            resident_source = "open_documents";
         } else if let Some(db) = self.doc_buffers.get(path) {
-            let end = 200usize.min(db.total_lines());
+            // Large resident doc: rebuild a rope window that COVERS the saved
+            // scroll position (not just the first screenful) so the viewport
+            // resumes where the user left it, then place the caret.
+            let total = db.total_lines();
+            large_total_lines = Some(total);
+            let end = saved_scroll.saturating_add(200).min(total).max(1);
             let lines: Vec<String> =
                 db.lines_in_range(0, end.saturating_sub(1)).into_iter().map(|(_, s)| s).collect();
             if lines.is_empty() {
                 self.editor_buffer.replace_content("");
                 self.active_rope_owner_path = None;
             } else {
-                self.editor_buffer.populate_from_lines(&lines, 0, 0);
+                let cl = saved_caret_line.min(lines.len().saturating_sub(1));
+                self.editor_buffer.populate_from_lines(&lines, cl, saved_caret_col);
                 self.active_rope_owner_path = Some(path.to_string());
             }
             self.large_file_mode = true;
+            resident_source = "doc_buffers";
+        } else if let Ok(meta) = std::fs::metadata(path)
+            && meta.len() < zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD
+        {
+            match std::fs::read_to_string(path) {
+                Ok(text) => {
+                    let lines: Vec<String> = {
+                        let mut v: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
+                        if let Some(last) = v.last()
+                            && last.is_empty()
+                        {
+                            v.pop();
+                        }
+                        v
+                    };
+                    if lines.is_empty() {
+                        self.editor_buffer.replace_content("");
+                    } else {
+                        // Apply the saved caret when we have view state (a file
+                        // that was resident-then-evicted); otherwise top-of-file.
+                        let cl = saved_caret_line.min(lines.len().saturating_sub(1));
+                        self.editor_buffer.populate_from_lines(&lines, cl, saved_caret_col);
+                    }
+                    self.active_rope_owner_path = Some(path.to_string());
+                    self.large_file_mode = false;
+                    resident_source = "disk";
+                }
+                Err(_) => {
+                    self.editor_buffer.replace_content("");
+                    self.active_rope_owner_path = None;
+                    self.large_file_mode = false;
+                }
+            }
         } else {
             // Not resident: blank now; the follow-up request_open/commit_open
             // (or the render owner-guard rehydrate) loads the correct content.
@@ -371,6 +459,33 @@ impl GuiApp {
             self.active_rope_owner_path = None;
             self.large_file_mode = false;
         }
+
+        // ── Restore the live viewport scroll into composition metadata ──
+        // Scroll position is owned by `DesktopMetadata`, not the rope, so the
+        // buffer restore above never touches it. `commit_open` will NOT restore
+        // it either (its checkout is gated on `active_file_changed`, which is
+        // false for a close-driven fallback), so this is the ONLY place the
+        // fallback's scroll is re-established. Also refresh the active-buffer
+        // line count so scroll clamping uses the true document length (for large
+        // files that is the PieceTable total, not the loaded rope window).
+        let content_resident = self.active_rope_owner_path.is_some();
+        if let Some(ref mut comp) = self.composition
+            && let Some(ref mut meta) = comp.metadata
+        {
+            // Only project a non-zero scroll when the content is actually
+            // resident; a blank fallback frame must stay at the top.
+            let effective_scroll = if content_resident { saved_scroll } else { 0 };
+            meta.editor_scroll_top_line = effective_scroll;
+            meta.editor_scroll_px = effective_scroll as f32 * lc::LINE_HEIGHT;
+            if let Some(ref mut abd) = meta.active_buffer_details {
+                abd.line_count =
+                    large_total_lines.unwrap_or_else(|| self.editor_buffer.line_count());
+            }
+        }
+        // Mark that this activation restored a saved view state so the tab-strip
+        // / activation path does not reset the scroll back to zero.
+        self.restored_view_state_this_activation = content_resident && saved_view.is_some();
+
         if std::env::var("ZAROXI_DOC_LIFECYCLE").as_deref() == Ok("1")
             || std::env::var("ZAROXI_DEBUG_VISIBLE_TABS").as_deref() == Ok("1")
         {
@@ -381,6 +496,17 @@ impl GuiApp {
                 self.large_file_mode,
                 self.editor_buffer.line_count(),
                 self.editor_content_fingerprint(),
+            );
+            eprintln!(
+                "ZAROXI_VIEWSTATE: fallback_reactivate path={} content_source={} resident_view_state={} restore_allowed={} scroll={} caret_line={} caret_col={} view_state_restored={}",
+                path,
+                resident_source,
+                saved_view.is_some(),
+                content_resident,
+                if content_resident { saved_scroll } else { 0 },
+                saved_caret_line,
+                saved_caret_col,
+                self.restored_view_state_this_activation,
             );
         }
     }
@@ -1362,6 +1488,100 @@ mod close_identity_tests {
         assert_eq!(meta_active.as_deref(), Some("buf:/w/d.rs"));
     }
 
+    /// commit_open MUST NOT materialize stale `editor_body` bytes under the
+    /// active tab's identity when the live rope already authoritatively owns
+    /// that tab's content.  This is the isolated content-identity guard: path
+    /// and bytes MUST come from the same source.
+    ///
+    /// The scenario models the exact post-close state where
+    /// `close_editor_transactional` rebound the rope to the fallback's OWN
+    /// content (resident / disk-loaded) and then `build_work_content()`
+    /// produced a stale `editor_body` from the stale presenter snapshot (old
+    /// file's content), which `request_open` fed into the open pipeline.  A
+    /// language mismatch marks `buffer_changed`, which historically forced a
+    /// re-materialization of that foreign `editor_body` over the correct rope.
+    #[test]
+    fn commit_open_does_not_stamp_new_path_on_stale_bytes() {
+        const A_CONTENT: &str = "[package]\nname = \"zaroxi\"\nedition = \"2024\"";
+        const B_CONTENT: &str = "/target\n*.log\n.env";
+
+        let mut app = make_headless_app();
+
+        // Two pinned tabs: Cargo.toml (A) and b.rs (B). B is active.
+        app.editor_group.open_or_activate_pinned(
+            "/w/Cargo.toml".into(),
+            "buf:/w/Cargo.toml".into(),
+            "Cargo.toml".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            "/w/b.rs".into(),
+            "buf:/w/b.rs".into(),
+            "b.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.activate_by_path("/w/b.rs");
+
+        // State AFTER close_editor_transactional's rebind: the live rope
+        // already authoritatively holds the fallback (B) content, keyed by B's
+        // path.  A stale `current_language` from the previous file forces
+        // `buffer_changed` on the next commit.
+        app.committed_active_file = Some("buf:/w/b.rs".to_string());
+        app.active_rope_owner_path = Some("/w/b.rs".to_string());
+        app.editor_buffer = buf_with(B_CONTENT);
+        app.current_language = zaroxi_core_platform_syntax::language::LanguageId::PlainText;
+
+        // The stale work content `build_work_content()` would produce after the
+        // close — `visible_window` was cleared, so the single line comes from
+        // the (stale) presenter snapshot that still holds file A's content.
+        // `active_file` correctly points at B.
+        let stale_body = zaroxi_core_engine_ui::ContentView {
+            title: "b.rs".to_string(),
+            subtitle: "buf:/w/b.rs".to_string(),
+            lines: A_CONTENT.lines().map(|s| s.to_string()).collect(),
+            cursor_line: 0,
+            cursor_col: 0,
+            selection: None,
+        };
+        let wc = crate::gui::ShellWorkContent {
+            editor_body: Some(stale_body),
+            active_file: Some("buf:/w/b.rs".to_string()),
+            ..Default::default()
+        };
+        app.request_open(wc);
+
+        let a_fp = {
+            let mut a = make_headless_app();
+            a.editor_buffer = buf_with(A_CONTENT);
+            a.editor_content_fingerprint()
+        };
+        let b_fp = {
+            let mut a = make_headless_app();
+            a.editor_buffer = buf_with(B_CONTENT);
+            a.editor_content_fingerprint()
+        };
+
+        app.commit_open();
+
+        // Identity invariant: the live rope must still hold B's bytes, NOT
+        // file A's bytes stamped under B's path label.
+        let head = app.editor_buffer.raw_head(512);
+        assert!(
+            head.starts_with("/target"),
+            "commit_open must preserve the fallback's own bytes — rope head: {:?}",
+            head,
+        );
+        assert_eq!(app.editor_content_fingerprint(), b_fp, "rope must equal B content");
+        assert_ne!(
+            app.editor_content_fingerprint(),
+            a_fp,
+            "rope fingerprint must not match the closed file's bytes",
+        );
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/b.rs"));
+    }
+
     /// Closing an INACTIVE tab must leave the active tab (and its identity)
     /// untouched: no service realignment toward the closed tab or its neighbor.
     #[test]
@@ -1408,5 +1628,711 @@ mod close_identity_tests {
             !recorded.iter().any(|s| s == "buf:/w/a.rs"),
             "must never realign to the closed tab; recorded={recorded:?}",
         );
+    }
+
+    /// THE bad case, end to end: close the ACTIVE tab whose fallback is NOT
+    /// resident in any in-memory store.  The rebind must source the fallback's
+    /// content from its OWN disk file — never inherit the closed file's live
+    /// rope, and never let `commit_open` stamp a stale single-line snippet
+    /// under the fallback's identity.  Uses real temp files so the disk-read
+    /// rebind path is exercised.
+    #[test]
+    fn closing_active_tab_with_nonresident_fallback_loads_own_content_from_disk() {
+        const A_CONTENT: &str = "AAAA active file line one\nAAAA line two\nAAAA line three";
+        const B_CONTENT: &str = "BBBB fallback own line one\nBBBB line two\nBBBB line three";
+
+        // Real temp files on disk keyed by their canonical paths.
+        let dir = std::env::temp_dir().join(format!(
+            "zaroxi_close_identity_{}_{}",
+            std::process::id(),
+            zaroxi_kernel_types::Id::new(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path_a = dir.join("a.rs");
+        let path_b = dir.join("b.rs");
+        std::fs::write(&path_a, A_CONTENT).unwrap();
+        std::fs::write(&path_b, B_CONTENT).unwrap();
+        let a = path_a.to_string_lossy().to_string();
+        let b = path_b.to_string_lossy().to_string();
+
+        let mut app = make_headless_app();
+        app.editor_group.open_or_activate_pinned(
+            a.clone(),
+            format!("buf:{a}"),
+            "a.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            b.clone(),
+            format!("buf:{b}"),
+            "b.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        // a.rs is the ACTIVE (live rope) document; b.rs is a pinned tab whose
+        // content is NOT parked anywhere (non-resident fallback).
+        app.editor_group.activate_by_path(&a);
+        app.editor_buffer = buf_with(A_CONTENT);
+        app.active_rope_owner_path = Some(a.clone());
+        app.committed_active_file = Some(format!("buf:{a}"));
+
+        // Stale visible_window belonging to A — the exact projection that used
+        // to leak into the fallback's editor_body.
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId(format!("buf:{a}"))),
+            opened_buffer_count: 2,
+            opened_buffers: vec![
+                OpenedBufferItem {
+                    buffer_id: BufferId(format!("buf:{a}")),
+                    display: Some("a.rs".to_string()),
+                    active: true,
+                },
+                OpenedBufferItem {
+                    buffer_id: BufferId(format!("buf:{b}")),
+                    display: Some("b.rs".to_string()),
+                    active: false,
+                },
+            ],
+            active_buffer_details: Some(crate::desktop::ActiveBufferDetails {
+                buffer_id: BufferId(format!("buf:{a}")),
+                display: Some("a.rs".to_string()),
+                line_count: 3,
+            }),
+            visible_window: Some(visible_window_for(&[
+                "AAAA active file line one",
+                "AAAA line two",
+            ])),
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app.workspace_service =
+            Some(Arc::new(RecordingSvc { set_active_calls: Arc::new(Mutex::new(Vec::new())) }));
+
+        let a_fp = {
+            let mut x = make_headless_app();
+            x.editor_buffer = buf_with(A_CONTENT);
+            x.editor_content_fingerprint()
+        };
+
+        // Close the ACTIVE a.rs tab. Fallback is the non-resident b.rs.
+        app.close_editor_transactional(&format!("buf:{a}"));
+
+        // Path identity moved to the fallback.
+        assert_eq!(app.editor_group.active_path(), Some(b.as_str()));
+        assert_eq!(app.committed_active_file.as_deref(), Some(format!("buf:{b}").as_str()));
+
+        // CONTENT identity: the live rope holds b.rs's OWN bytes read from
+        // disk — not a.rs's bytes, and not a single-line snippet.
+        assert!(
+            app.editor_buffer.raw_head(64).starts_with("BBBB"),
+            "rope must show b.rs's own content after close, got: {:?}",
+            app.editor_buffer.raw_head(64),
+        );
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some(b.as_str()));
+        assert!(
+            app.editor_buffer.line_count() >= 3,
+            "fallback must render its full content, not collapse to one line (lines={})",
+            app.editor_buffer.line_count(),
+        );
+        assert_ne!(
+            app.editor_content_fingerprint(),
+            a_fp,
+            "rope must NOT still hold a.rs content under the b.rs tab",
+        );
+
+        // Driving the real commit must NOT reintroduce foreign content.
+        app.commit_open();
+        assert!(
+            app.editor_buffer.raw_head(64).starts_with("BBBB"),
+            "commit_open after close must preserve b.rs content, got: {:?}",
+            app.editor_buffer.raw_head(64),
+        );
+        assert_ne!(app.editor_content_fingerprint(), a_fp);
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some(b.as_str()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+/// Syntax-identity continuity across the close/fallback lifecycle.
+///
+/// These guard the regression where closing a tab correctly preserved the
+/// fallback file's CONTENT (rope bytes) but left its SYNTAX pipeline bound to
+/// the previous document — so the fallback rendered as plain text even though
+/// its bytes were right.  Content ownership and syntax ownership are separate:
+/// even when rope rematerialization is skipped, the syntax state must be valid
+/// for the active file.
+#[cfg(test)]
+mod syntax_continuity_tests {
+    use super::super::editor_group::BackendKind;
+    use super::super::test_support::make_headless_app;
+    use super::GuiApp;
+    use crate::desktop::{DesktopComposition, DesktopMetadata, OpenedBufferItem};
+    use crate::gui::window::editor_buf::EditorBufferState;
+    use crate::ports;
+    use crate::ports::BufferId;
+    use std::path::Path;
+    use zaroxi_core_platform_syntax::language::LanguageId;
+
+    const RUST_A: &str = "fn alpha() -> u32 {\n    let value = 1;\n    value + 2\n}\n";
+    const RUST_B: &str = "pub struct Beta {\n    field: i64,\n}\nimpl Beta { fn n(&self) {} }\n";
+
+    fn buf_with(text: &str) -> EditorBufferState {
+        let mut b = EditorBufferState::empty();
+        b.replace_content(text);
+        b
+    }
+
+    fn opened(path: &str, active: bool) -> OpenedBufferItem {
+        OpenedBufferItem {
+            buffer_id: BufferId(format!("buf:{path}")),
+            display: path.rsplit('/').next().map(|s| s.to_string()),
+            active,
+        }
+    }
+
+    /// Mirror of the render-side span gate (`redraw.rs`): spans color the frame
+    /// ONLY when they exist, describe the current buffer version, AND belong to
+    /// the active file.  A `true` result means the editor renders with syntax;
+    /// `false` means it falls through to plain text.
+    fn syntax_would_render(app: &GuiApp) -> bool {
+        app.latest_spans.is_some()
+            && app.latest_spans_version == app.editor_buffer.buffer_version
+            && app.latest_spans_owner.as_deref() == app.committed_active_file.as_deref()
+    }
+
+    fn spans_len(app: &GuiApp) -> usize {
+        app.latest_spans.as_ref().map(|s| s.len()).unwrap_or(0)
+    }
+
+    /// Build a two-tab app where `active` is the live (rope) document and
+    /// `fallback` is parked in `open_documents`, with a VALID syntax snapshot
+    /// already computed for `active` (owner + version aligned).  The active
+    /// file's language is detected from its path exactly as the open pipeline
+    /// would (`.rs` → `Dynamic("rust")`), so the precondition matches runtime.
+    fn app_with_active_and_parked_fallback(
+        active_path: &str,
+        active_text: &str,
+        fallback_path: &str,
+        fallback_text: &str,
+    ) -> GuiApp {
+        let mut app = make_headless_app();
+        app.editor_group.open_or_activate_pinned(
+            active_path.into(),
+            format!("buf:{active_path}"),
+            active_path.rsplit('/').next().unwrap().into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            fallback_path.into(),
+            format!("buf:{fallback_path}"),
+            fallback_path.rsplit('/').next().unwrap().into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.activate_by_path(active_path);
+
+        app.editor_buffer = buf_with(active_text);
+        app.active_rope_owner_path = Some(active_path.to_string());
+        app.committed_active_file = Some(format!("buf:{active_path}"));
+        app.current_language = LanguageId::from_path(Path::new(active_path));
+        // A valid syntax snapshot for the ACTIVE file (proves the fallback later
+        // OWNS its own fresh snapshot rather than inheriting this one).
+        app.schedule_background_parse();
+        assert!(syntax_would_render(&app), "precondition: active file must start syntax-verified");
+
+        app.open_documents.insert(fallback_path.to_string(), buf_with(fallback_text));
+
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId(format!("buf:{active_path}"))),
+            opened_buffer_count: 2,
+            opened_buffers: vec![opened(active_path, true), opened(fallback_path, false)],
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app
+    }
+
+    /// Closing the ACTIVE tab must leave the fallback file syntax-verified —
+    /// its own spans, its own owner, its own version, its own language — NOT
+    /// plain text and NOT the closed file's spans.
+    #[test]
+    fn closing_active_tab_preserves_syntax_for_fallback_file() {
+        let mut app = app_with_active_and_parked_fallback("/w/a.rs", RUST_A, "/w/b.rs", RUST_B);
+        let closed_spans_owner = app.latest_spans_owner.clone();
+        let fallback_lang = LanguageId::from_path(Path::new("/w/b.rs"));
+        assert_ne!(
+            fallback_lang,
+            LanguageId::PlainText,
+            "fixture: b.rs must be a recognized language"
+        );
+
+        app.close_editor_transactional("buf:/w/a.rs");
+        app.commit_open();
+
+        // Content identity moved to the fallback.
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/b.rs"));
+        assert!(app.editor_buffer.raw_head(32).starts_with("pub struct Beta"));
+
+        // Syntax identity moved too: language, owner, version all realigned.
+        assert_eq!(app.current_language, fallback_lang, "syntax language must follow fallback");
+        assert_ne!(app.current_language, LanguageId::PlainText);
+        assert!(
+            syntax_would_render(&app),
+            "fallback must render WITH syntax (owner={:?} committed={:?} spans_v={} buf_v={})",
+            app.latest_spans_owner,
+            app.committed_active_file,
+            app.latest_spans_version,
+            app.editor_buffer.buffer_version,
+        );
+        assert!(
+            spans_len(&app) > 0,
+            "fallback must have non-empty highlight spans, not plain text"
+        );
+        assert_eq!(app.latest_spans_owner.as_deref(), Some("buf:/w/b.rs"));
+        assert_ne!(
+            app.latest_spans_owner, closed_spans_owner,
+            "spans owner must NOT still be the closed file",
+        );
+    }
+
+    /// Closing a DIFFERENT-language active tab must rebind syntax to the
+    /// fallback's language (exercises the `buffer_changed` cache-reset path).
+    #[test]
+    fn closing_active_tab_rebinds_language_for_fallback_file() {
+        // Active is plain text, fallback is Rust: the language must transition to
+        // the fallback's detected language and the fallback ends syntax-verified.
+        let mut app = app_with_active_and_parked_fallback(
+            "/w/data.txt",
+            "just plain text\nno syntax here\n",
+            "/w/keep.rs",
+            RUST_B,
+        );
+
+        app.close_editor_transactional("buf:/w/data.txt");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/keep.rs"));
+        assert_eq!(app.current_language, LanguageId::from_path(Path::new("/w/keep.rs")));
+        assert_ne!(app.current_language, LanguageId::PlainText);
+        assert!(syntax_would_render(&app));
+        assert!(spans_len(&app) > 0, "Rust fallback must have non-empty spans");
+        assert_eq!(app.latest_spans_owner.as_deref(), Some("buf:/w/keep.rs"));
+    }
+
+    /// Closing an INACTIVE tab must NOT disturb the active file's syntax state.
+    #[test]
+    fn closing_inactive_tab_does_not_clear_active_syntax() {
+        let mut app = app_with_active_and_parked_fallback("/w/a.rs", RUST_A, "/w/b.rs", RUST_B);
+        let before_owner = app.latest_spans_owner.clone();
+        let before_version = app.latest_spans_version;
+        let before_len = spans_len(&app);
+        let active_lang = app.current_language;
+
+        // Close the INACTIVE fallback tab; active a.rs stays live.
+        app.close_editor_transactional("buf:/w/b.rs");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/a.rs"));
+        assert_eq!(app.current_language, active_lang);
+        assert_ne!(app.current_language, LanguageId::PlainText);
+        assert!(syntax_would_render(&app), "active syntax must remain verified");
+        assert!(spans_len(&app) > 0);
+        assert_eq!(app.latest_spans_owner, before_owner, "active spans owner must be unchanged");
+        assert_eq!(app.latest_spans_version, before_version, "active spans version unchanged");
+        assert_eq!(spans_len(&app), before_len, "active spans set unchanged");
+        assert!(app.editor_buffer.raw_head(16).starts_with("fn alpha"));
+    }
+
+    /// The core of this regression: when the close-time rebind leaves the rope
+    /// ALREADY owning the fallback's bytes (so `commit_open` skips
+    /// rematerialization — the previous content-identity optimization), syntax
+    /// must STILL be recomputed for the fallback.  We prove rematerialization
+    /// was skipped by checking the rope bytes were never rebuilt, yet the
+    /// syntax snapshot is freshly owned by the fallback.
+    #[test]
+    fn fallback_activation_recomputes_syntax_when_rope_materialization_is_skipped() {
+        // Same language on both sides so `buffer_changed` stays FALSE — the only
+        // thing that can refresh syntax is the new syntax-continuity guard.
+        let mut app = app_with_active_and_parked_fallback("/w/a.rs", RUST_A, "/w/b.rs", RUST_B);
+
+        app.close_editor_transactional("buf:/w/a.rs");
+
+        // After close (pre-commit): rope already authoritatively owns fallback B.
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/b.rs"));
+        assert!(app.editor_buffer.raw_head(32).starts_with("pub struct Beta"));
+        let rope_fp_after_rebind = app.editor_content_fingerprint();
+        let buf_version_after_rebind = app.editor_buffer.buffer_version;
+
+        app.commit_open();
+
+        // Rematerialization was skipped: the rope object was NOT rebuilt (same
+        // bytes, same version as the close-time rebind produced).
+        assert_eq!(
+            app.editor_content_fingerprint(),
+            rope_fp_after_rebind,
+            "rope bytes must be untouched by commit_open (materialization skipped)",
+        );
+        assert_eq!(
+            app.editor_buffer.buffer_version, buf_version_after_rebind,
+            "buffer_version must not bump — no rematerialization happened",
+        );
+
+        // ...yet syntax was still recomputed and re-owned for the fallback.
+        assert!(
+            syntax_would_render(&app),
+            "syntax must be recomputed even when rope materialization is skipped",
+        );
+        assert!(spans_len(&app) > 0);
+        assert_eq!(app.latest_spans_owner.as_deref(), Some("buf:/w/b.rs"));
+        assert_eq!(app.latest_spans_version, app.editor_buffer.buffer_version);
+    }
+
+    /// Plain text must be used ONLY when language detection truly fails — never
+    /// as an accidental global fallback after a close.  A recognized-language
+    /// fallback stays colored; an unknown-extension fallback is plain (empty
+    /// spans) but still correctly owned/versioned (so it is a deliberate
+    /// plain-text state, not a stale/rejected-spans state).
+    #[test]
+    fn plain_text_is_only_used_when_language_detection_truly_fails() {
+        // Fallback has NO recognized language (unknown extension).
+        let mut app = app_with_active_and_parked_fallback(
+            "/w/a.rs",
+            RUST_A,
+            "/w/notes.unknownext",
+            "arbitrary\nunstructured\ncontent\n",
+        );
+
+        app.close_editor_transactional("buf:/w/a.rs");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/notes.unknownext"));
+        // Detection truly failed → PlainText, and NO colored spans.
+        assert_eq!(app.current_language, LanguageId::PlainText);
+        assert_eq!(spans_len(&app), 0, "unknown language must produce no colored spans");
+        // But the (empty) syntax snapshot is still correctly OWNED + versioned:
+        // this is a deliberate plain-text state, not a stale-spans rejection.
+        assert!(app.latest_spans.is_some(), "an (empty) snapshot must be recorded for the owner");
+        assert_eq!(app.latest_spans_owner.as_deref(), Some("buf:/w/notes.unknownext"));
+        assert_eq!(app.latest_spans_version, app.editor_buffer.buffer_version);
+
+        // Control: a recognized-language fallback in the same harness IS colored,
+        // proving plain-text is not a global downgrade.
+        let mut app2 = app_with_active_and_parked_fallback("/w/a.rs", RUST_A, "/w/keep.rs", RUST_B);
+        app2.close_editor_transactional("buf:/w/a.rs");
+        app2.commit_open();
+        assert_ne!(app2.current_language, LanguageId::PlainText);
+        assert!(spans_len(&app2) > 0, "recognized language must stay colored");
+    }
+}
+
+/// View-state continuity across the close/fallback lifecycle.
+///
+/// Layered on top of the content-identity and syntax-identity fixes: the bytes
+/// and highlighting are correct, but closing a tab must ALSO make the fallback
+/// resume its exact previous session view state (scroll + caret + viewport)
+/// from RESIDENT memory rather than reopening at top-of-file.  Resident state
+/// beats disk every time.
+#[cfg(test)]
+mod view_state_continuity_tests {
+    use super::super::editor_group::BackendKind;
+    use super::super::test_support::make_headless_app;
+    use super::{DocumentViewState, GuiApp};
+    use crate::desktop::{DesktopComposition, DesktopMetadata, OpenedBufferItem};
+    use crate::gui::window::editor_buf::EditorBufferState;
+    use crate::ports;
+    use crate::ports::BufferId;
+
+    fn lines_text(n: usize, tag: &str) -> String {
+        (0..n).map(|i| format!("{tag} line {i}")).collect::<Vec<_>>().join("\n")
+    }
+
+    fn buf_with_caret(text: &str, caret_line: usize, caret_col: usize) -> EditorBufferState {
+        let mut b = EditorBufferState::empty();
+        b.replace_content(text);
+        b.set_caret_line_col(caret_line, caret_col);
+        b
+    }
+
+    fn opened(path: &str, active: bool) -> OpenedBufferItem {
+        OpenedBufferItem {
+            buffer_id: BufferId(format!("buf:{path}")),
+            display: path.rsplit('/').next().map(|s| s.to_string()),
+            active,
+        }
+    }
+
+    fn meta_scroll(app: &GuiApp) -> usize {
+        app.composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .map(|m| m.editor_scroll_top_line)
+            .unwrap_or(usize::MAX)
+    }
+
+    /// Build A (active, live) + B (parked normal doc) with B holding a saved
+    /// NON-ZERO scroll/caret in `document_view_states` and a parked buffer whose
+    /// caret matches.  `a_scroll` is the active file's live scroll.
+    fn app_active_a_parked_b(
+        a_scroll: usize,
+        b_scroll: usize,
+        b_caret_line: usize,
+        b_caret_col: usize,
+    ) -> GuiApp {
+        let mut app = make_headless_app();
+        app.editor_group.open_or_activate_pinned(
+            "/w/a.rs".into(),
+            "buf:/w/a.rs".into(),
+            "a.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            "/w/b.rs".into(),
+            "buf:/w/b.rs".into(),
+            "b.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.activate_by_path("/w/a.rs");
+
+        // Active A is live in the rope with its own caret.
+        app.editor_buffer = buf_with_caret(&lines_text(40, "AAAA"), 2, 1);
+        app.active_rope_owner_path = Some("/w/a.rs".to_string());
+        app.committed_active_file = Some("buf:/w/a.rs".to_string());
+
+        // B parked in memory with a distinct caret + saved view state.
+        app.open_documents.insert(
+            "/w/b.rs".to_string(),
+            buf_with_caret(&lines_text(40, "BBBB"), b_caret_line, b_caret_col),
+        );
+        app.document_view_states.insert(
+            "/w/b.rs".to_string(),
+            DocumentViewState {
+                caret_line: b_caret_line,
+                caret_col: b_caret_col,
+                scroll_top: b_scroll,
+            },
+        );
+
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/a.rs".to_string())),
+            opened_buffer_count: 2,
+            opened_buffers: vec![opened("/w/a.rs", true), opened("/w/b.rs", false)],
+            active_buffer_details: Some(crate::desktop::ActiveBufferDetails {
+                buffer_id: BufferId("buf:/w/a.rs".to_string()),
+                display: Some("a.rs".to_string()),
+                line_count: 40,
+            }),
+            editor_scroll_top_line: a_scroll,
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+        app
+    }
+
+    /// Closing the ACTIVE tab must restore the fallback's saved scroll AND
+    /// caret, not reset to top-of-file defaults.
+    #[test]
+    fn closing_active_tab_restores_fallback_scroll_and_caret() {
+        let mut app = app_active_a_parked_b(3, 12, 15, 4);
+
+        app.close_editor_transactional("buf:/w/a.rs");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/b.rs"));
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/b.rs"));
+        // View state resumed from resident memory (NOT top-of-file).
+        assert_eq!(meta_scroll(&app), 12, "fallback scroll must resume at saved position");
+        assert_eq!(app.editor_buffer.caret_line(), 15, "fallback caret line must resume");
+        assert_eq!(app.editor_buffer.caret_col(), 4, "fallback caret col must resume");
+        assert!(
+            app.editor_buffer.raw_head(8).starts_with("BBBB"),
+            "content must be the fallback's"
+        );
+    }
+
+    /// Closing the active tab must reuse RESIDENT state and never reload from
+    /// disk.  The paths intentionally do not exist on disk, so any disk fallback
+    /// would blank the buffer — proving reuse by asserting non-blank content.
+    #[test]
+    fn closing_active_tab_reuses_resident_state_without_disk_reload() {
+        let mut app = app_active_a_parked_b(0, 8, 9, 2);
+        // Sanity: the fallback file is NOT on disk.
+        assert!(!std::path::Path::new("/w/b.rs").exists());
+
+        app.close_editor_transactional("buf:/w/a.rs");
+        // The restore path fires during the close-time rebind (commit_open later
+        // consumes/clears the flag, so capture it here).
+        let restore_fired = app.restored_view_state_this_activation;
+        app.commit_open();
+
+        // Resident content + view state were reused (no disk, no blank frame).
+        assert!(app.editor_buffer.char_count() > 0, "resident content must be reused, not blanked");
+        assert!(app.editor_buffer.raw_head(8).starts_with("BBBB"));
+        assert_eq!(meta_scroll(&app), 8);
+        assert_eq!(app.editor_buffer.caret_line(), 9);
+        assert!(restore_fired, "restore path must have fired during close");
+        // The saved view-state entry was consumed (not leaked).
+        assert!(!app.document_view_states.contains_key("/w/b.rs"));
+    }
+
+    /// Closing an INACTIVE tab must leave the ACTIVE tab's view state untouched.
+    #[test]
+    fn closing_inactive_tab_preserves_active_view_state() {
+        let mut app = app_active_a_parked_b(7, 12, 15, 4);
+        let a_caret_line = app.editor_buffer.caret_line();
+        let a_caret_col = app.editor_buffer.caret_col();
+        let a_fp = app.editor_content_fingerprint();
+
+        // Close the INACTIVE b.rs; active a.rs stays live.
+        app.close_editor_transactional("buf:/w/b.rs");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/a.rs"));
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/a.rs"));
+        assert_eq!(meta_scroll(&app), 7, "active scroll must be untouched by inactive close");
+        assert_eq!(app.editor_buffer.caret_line(), a_caret_line, "active caret untouched");
+        assert_eq!(app.editor_buffer.caret_col(), a_caret_col);
+        assert_eq!(app.editor_content_fingerprint(), a_fp, "active content untouched");
+    }
+
+    /// Specifically covers the content-materialization optimization introduced by
+    /// the earlier fixes: the rope is NOT rebuilt (bytes/version stable), yet the
+    /// fallback's scroll and caret are still restored from resident view state.
+    #[test]
+    fn fallback_activation_preserves_view_state_when_content_materialization_is_skipped() {
+        let mut app = app_active_a_parked_b(0, 20, 22, 6);
+
+        app.close_editor_transactional("buf:/w/b.rs" /* inactive */);
+        // (Sanity: closing inactive should not have moved active.)
+        assert_eq!(app.committed_active_file.as_deref(), Some("buf:/w/a.rs"));
+
+        // Now the real case: rebuild the fixture and close the ACTIVE tab.
+        let mut app = app_active_a_parked_b(0, 20, 22, 6);
+        app.close_editor_transactional("buf:/w/a.rs");
+
+        // After the close rebind, the rope already owns the fallback bytes.
+        let fp_after_rebind = app.editor_content_fingerprint();
+        let version_after_rebind = app.editor_buffer.buffer_version;
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some("/w/b.rs"));
+        assert_eq!(meta_scroll(&app), 20, "scroll restored at rebind time");
+        assert_eq!(app.editor_buffer.caret_line(), 22);
+
+        app.commit_open();
+
+        // commit_open must NOT rematerialize (bytes + version unchanged)...
+        assert_eq!(app.editor_content_fingerprint(), fp_after_rebind, "no rematerialization");
+        assert_eq!(app.editor_buffer.buffer_version, version_after_rebind, "no version bump");
+        // ...and the restored view state must survive commit_open.
+        assert_eq!(meta_scroll(&app), 20, "scroll must survive commit_open");
+        assert_eq!(app.editor_buffer.caret_line(), 22, "caret must survive commit_open");
+    }
+
+    /// Large-file fallback must also restore scroll (viewport window must cover
+    /// the saved scroll position) and caret from resident view state.
+    #[test]
+    fn large_file_fallback_restores_scroll_state() {
+        // Create a real temp file large enough (>= LARGE_THRESHOLD, 1 MiB) that
+        // `commit_open`'s file-size recheck keeps `large_file_mode` on and
+        // `DocumentBuffer::open` selects the PieceTable backend — so this
+        // exercises the true large-file fallback path.
+        let dir = std::env::temp_dir().join(format!(
+            "zaroxi_vs_large_{}_{}",
+            std::process::id(),
+            zaroxi_kernel_types::Id::new(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path_b = dir.join("big.rs");
+        // ~1.6 MiB: 20000 lines of an 80-char body.
+        let big = (0..20_000)
+            .map(|i| format!("LARGE line {i:06} {}", "x".repeat(60)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            big.len() as u64 >= zaroxi_core_editor_largefile::DocumentBuffer::LARGE_THRESHOLD,
+            "fixture must exceed the large-file threshold",
+        );
+        std::fs::write(&path_b, &big).unwrap();
+        let b = path_b.to_string_lossy().to_string();
+
+        let mut app = make_headless_app();
+        app.editor_group.open_or_activate_pinned(
+            "/w/a.rs".into(),
+            "buf:/w/a.rs".into(),
+            "a.rs".into(),
+            BackendKind::Rope,
+            true,
+        );
+        app.editor_group.open_or_activate_pinned(
+            b.clone(),
+            format!("buf:{b}"),
+            "big.rs".into(),
+            BackendKind::PieceTable,
+            true,
+        );
+        app.editor_group.activate_by_path("/w/a.rs");
+
+        app.editor_buffer = buf_with_caret(&lines_text(40, "AAAA"), 1, 0);
+        app.active_rope_owner_path = Some("/w/a.rs".to_string());
+        app.committed_active_file = Some("buf:/w/a.rs".to_string());
+
+        // Fallback B is a large (doc_buffers) document with saved view state.
+        let doc = zaroxi_core_editor_largefile::DocumentBuffer::open(&path_b).unwrap();
+        let total = doc.total_lines();
+        app.doc_buffers.insert(b.clone(), doc);
+        app.document_view_states
+            .insert(b.clone(), DocumentViewState { caret_line: 30, caret_col: 2, scroll_top: 25 });
+
+        let mut comp = DesktopComposition::new();
+        comp.metadata = Some(DesktopMetadata {
+            active_buffer: Some(BufferId("buf:/w/a.rs".to_string())),
+            opened_buffer_count: 2,
+            opened_buffers: vec![opened("/w/a.rs", true), opened(&b, false)],
+            active_buffer_details: Some(crate::desktop::ActiveBufferDetails {
+                buffer_id: BufferId("buf:/w/a.rs".to_string()),
+                display: Some("a.rs".to_string()),
+                line_count: 40,
+            }),
+            ..Default::default()
+        });
+        app.composition = Some(comp);
+        app.session_id = Some(ports::SessionId(zaroxi_kernel_types::Id::new()));
+
+        app.close_editor_transactional("buf:/w/a.rs");
+        app.commit_open();
+
+        assert_eq!(app.committed_active_file.as_deref(), Some(format!("buf:{b}").as_str()));
+        assert!(app.large_file_mode, "fallback must be in large-file mode");
+        assert_eq!(app.active_rope_owner_path.as_deref(), Some(b.as_str()));
+        // Scroll + caret resumed from resident view state.
+        assert_eq!(meta_scroll(&app), 25, "large-file fallback scroll must resume");
+        assert_eq!(app.editor_buffer.caret_line(), 30, "large-file fallback caret must resume");
+        // The rope window must COVER the saved scroll position (not just line 0).
+        assert!(
+            app.editor_buffer.line_count() >= 25,
+            "rope window must cover the saved scroll (lines={})",
+            app.editor_buffer.line_count(),
+        );
+        // active_buffer_details.line_count must reflect the true document total,
+        // not the loaded rope window, so scroll clamping stays correct.
+        let abd_lines = app
+            .composition
+            .as_ref()
+            .and_then(|c| c.metadata.as_ref())
+            .and_then(|m| m.active_buffer_details.as_ref())
+            .map(|d| d.line_count)
+            .unwrap_or(0);
+        assert_eq!(abd_lines, total, "large-file line_count must be the document total");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
