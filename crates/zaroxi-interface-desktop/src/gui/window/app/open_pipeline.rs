@@ -1725,7 +1725,18 @@ impl GuiApp {
         }
         self.latest_spans = Some(effective);
         self.latest_spans_version = version;
-        self.latest_spans_owner = owner;
+        self.latest_spans_owner = owner.clone();
+        // Capture the authoritative immediate syntax problems for the active
+        // buffer (deduped by position) so the Problems tab reflects the current
+        // edit without waiting for the background worker.
+        let mut seen = std::collections::HashSet::new();
+        self.parse_problems = computed
+            .errors
+            .iter()
+            .filter(|e| seen.insert((e.line, e.column, e.missing)))
+            .map(|e| super::bottom_panel::Problem::from_parse_error(e, owner.as_deref()))
+            .collect();
+        self.parse_problems_owner = owner;
         // The line hash changes on every edit, so the editor cache already
         // rebuilds; clearing keeps the per-line syntax cache consistent and
         // guarantees no per-line colored payload survives across this edit.
@@ -2008,9 +2019,12 @@ impl GuiApp {
         let accepted = if let Some(ref mut worker) = self.parse_worker {
             let current = worker.latest_version();
             let got = match worker.poll_result() {
-                Some(result) if result.version == current => {
-                    Some((result.spans.clone(), result.version, result.owner.clone()))
-                }
+                Some(result) if result.version == current => Some((
+                    result.spans.clone(),
+                    result.version,
+                    result.owner.clone(),
+                    result.errors.clone(),
+                )),
                 _ => None,
             };
             if got.is_some() {
@@ -2021,7 +2035,7 @@ impl GuiApp {
             None
         };
 
-        if let Some((spans, version, owner)) = accepted {
+        if let Some((spans, version, owner, errors)) = accepted {
             // ── Strict async precedence + ownership ──
             // An async parse result may replace the current highlighting ONLY
             // when BOTH hold:
@@ -2057,7 +2071,16 @@ impl GuiApp {
                 }
                 self.latest_spans = Some(spans);
                 self.latest_spans_version = version;
-                self.latest_spans_owner = owner;
+                self.latest_spans_owner = owner.clone();
+                // Capture the real syntax problems (deduped by position) for the
+                // Problems tab. An empty set clears stale problems for this file.
+                let mut seen = std::collections::HashSet::new();
+                self.parse_problems = errors
+                    .iter()
+                    .filter(|e| seen.insert((e.line, e.column, e.missing)))
+                    .map(|e| super::bottom_panel::Problem::from_parse_error(e, owner.as_deref()))
+                    .collect();
+                self.parse_problems_owner = owner;
                 // Force the editor shaping caches to rebuild with the new spans.
                 self.cached_editor_lines_hash = 0;
                 self.line_syntax_cache.clear();

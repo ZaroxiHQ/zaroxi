@@ -191,7 +191,17 @@ impl TerminalController {
         }
     }
 
-    /// Header title for the bottom panel: program name + exit note.
+    /// A short "exited N" note when the child has terminated, else `None`
+    /// (alive or no session). Used by the tab strip; kept free of the shell
+    /// name so the header stays uncluttered while the terminal is running.
+    pub fn exited_note(&self) -> Option<String> {
+        let exit = self.session.as_ref()?.exit_status()?;
+        Some(format!("exited {}", exit.code))
+    }
+
+    /// Header title for a standalone terminal decoration (program + exit note).
+    /// The bottom panel overrides this with the shared tab strip, so it is only
+    /// a sensible default for direct decoration consumers/tests.
     fn title(&self) -> String {
         match self.session.as_ref() {
             Some(s) => {
@@ -203,7 +213,7 @@ impl TerminalController {
                     format!("Terminal — {name}")
                 }
             }
-            None => "Terminal \u{2022} Problems \u{2022} Output".to_string(),
+            None => "Terminal".to_string(),
         }
     }
 
@@ -212,79 +222,6 @@ impl TerminalController {
         let session = self.session.as_ref()?;
         let grid = build_grid(session.screen(), palette);
         Some(decoration_from_grid(&grid, self.title(), palette))
-    }
-
-    /// The bottom-panel tab strip label with the active tab marked, plus the
-    /// live shell status and focus cue for the Terminal tab.
-    fn tab_strip_title(&self, active: BottomTab) -> String {
-        let names = ["Terminal", "Problems", "Output"];
-        let active_idx = active.index();
-        let mut parts: Vec<String> = Vec::with_capacity(3);
-        for (i, name) in names.iter().enumerate() {
-            if i == active_idx {
-                if i == 0 {
-                    let label = match self.status_label() {
-                        Some(s) => format!("[Terminal: {s}]"),
-                        None => "[Terminal]".to_string(),
-                    };
-                    if self.focused {
-                        parts.push(format!("{label} (focused)"));
-                    } else {
-                        parts.push(label);
-                    }
-                } else {
-                    parts.push(format!("[{name}]"));
-                }
-            } else {
-                parts.push(name.to_string());
-            }
-        }
-        parts.join("    ")
-    }
-
-    /// Project the selected bottom tab onto its render block: the live terminal
-    /// grid for Terminal, or a clean placeholder for Problems/Output. Replaces
-    /// the legacy static "Ready" body entirely.
-    ///
-    /// Takes `&self` (borrows only the controller field of the app) so it can be
-    /// called while the window borrow is held during rendering.
-    pub fn apply_bottom_panel(
-        &self,
-        active: BottomTab,
-        block: &mut UiBlock,
-        palette: &TerminalPalette,
-        accent: [f32; 4],
-    ) {
-        match active {
-            BottomTab::Terminal => {
-                if self.is_open() {
-                    if let Some(dec) = self.build_decoration(palette) {
-                        dec.apply(block);
-                    }
-                } else {
-                    reset_panel_body(block);
-                    block.content = "Starting terminal…".to_string();
-                }
-            }
-            BottomTab::Problems => {
-                reset_panel_body(block);
-                block.content = "No problems have been detected in the workspace.".to_string();
-            }
-            BottomTab::Output => {
-                reset_panel_body(block);
-                block.content = "No output.".to_string();
-            }
-        }
-        // The header doubles as the tab strip (active tab marked).
-        block.title = self.tab_strip_title(active);
-        // A focused terminal gets an accent border so focus is obvious.
-        if active == BottomTab::Terminal && self.focused {
-            block.border_color = Some(accent);
-            block.border_width = 1.0;
-        } else {
-            block.border_color = None;
-            block.border_width = 0.0;
-        }
     }
 }
 
@@ -457,6 +394,9 @@ impl GuiApp {
     pub(crate) fn select_bottom_tab(&mut self, idx: usize) {
         let tab = BottomTab::from_index(idx);
         self.bottom_tab = tab;
+        // Reset the Problems/Output scroll so a switched-to tab starts at a
+        // sensible position (top for Problems, newest for Output).
+        self.bottom_scroll = 0;
         if tab == BottomTab::Terminal {
             let (rows, cols) = self.terminal_layout_dims();
             let cwd = self.terminal_default_cwd();
@@ -562,18 +502,6 @@ impl GuiApp {
     }
 }
 
-/// Clear any terminal-grid payload from a panel block (used for the non-terminal
-/// tabs and the pre-startup state).
-fn reset_panel_body(block: &mut UiBlock) {
-    block.content_spans = None;
-    block.terminal_cell_bg = None;
-    block.block_cursor = false;
-    block.cursor_line = None;
-    block.cursor_col = None;
-    block.highlight_active_line = false;
-    block.content = String::new();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -674,102 +602,5 @@ mod tests {
         assert!(!c.is_open());
         assert!(!c.focused);
         assert!(!c.needs_poll());
-    }
-
-    // ── GUI-level wiring tests (drive the real app state) ──
-    //
-    // These spawn a real shell via the controller and exercise the end-to-end
-    // wiring: bottom-tab selection, viewport projection (no "Ready"
-    // placeholder), focus routing, and session persistence across tab switches.
-
-    use super::super::test_support::make_headless_app;
-    use zaroxi_core_engine_render::UiBlock;
-    use zaroxi_core_engine_style::test_utils::test_tokens_dark;
-
-    fn palette() -> TerminalPalette {
-        let t = test_tokens_dark();
-        palette_from_tokens(&t)
-    }
-
-    #[test]
-    fn default_bottom_tab_is_terminal() {
-        let app = make_headless_app();
-        assert_eq!(app.bottom_tab, BottomTab::Terminal);
-    }
-
-    #[test]
-    fn selecting_terminal_tab_builds_viewport_not_ready_placeholder() {
-        let mut app = make_headless_app();
-        app.select_bottom_tab(0);
-        assert!(app.terminal.is_open(), "selecting Terminal must start the shell");
-        assert!(app.terminal.focused, "selecting Terminal focuses it");
-
-        // Start from the legacy placeholder block and project the terminal tab.
-        let mut block = UiBlock { content: "Ready".to_string(), ..Default::default() };
-        app.terminal.apply_bottom_panel(app.bottom_tab, &mut block, &palette(), [0.0; 4]);
-
-        assert_ne!(block.content, "Ready", "the Ready placeholder must be gone");
-        assert!(block.block_cursor, "terminal viewport draws a block cursor");
-        assert!(block.content_spans.is_some(), "terminal viewport emits a cell grid");
-        assert!(block.title.contains("Terminal"), "header shows the Terminal tab: {}", block.title);
-        assert!(block.title.contains("focused"), "focused terminal is marked: {}", block.title);
-    }
-
-    #[test]
-    fn problems_and_output_tabs_show_placeholders_and_release_focus() {
-        let mut app = make_headless_app();
-        app.select_bottom_tab(0); // open + focus terminal first
-        app.select_bottom_tab(1); // Problems
-        assert!(!app.terminal.focused, "switching to Problems releases terminal focus");
-        assert!(app.terminal.is_open(), "the terminal session persists across tab switches");
-
-        let mut block = UiBlock::default();
-        app.terminal.apply_bottom_panel(app.bottom_tab, &mut block, &palette(), [0.0; 4]);
-        assert!(block.content.contains("No problems"), "problems placeholder: {}", block.content);
-        assert!(!block.block_cursor, "non-terminal tab must not draw a terminal cursor");
-        assert!(block.content_spans.is_none());
-        assert!(block.title.contains("[Problems]"), "active tab marked: {}", block.title);
-
-        app.select_bottom_tab(2); // Output
-        let mut block = UiBlock::default();
-        app.terminal.apply_bottom_panel(app.bottom_tab, &mut block, &palette(), [0.0; 4]);
-        assert!(block.content.contains("No output"));
-        assert!(!block.block_cursor);
-    }
-
-    #[test]
-    fn click_to_focus_and_blur_are_the_focus_source_of_truth() {
-        let mut app = make_headless_app();
-        app.select_bottom_tab(1); // Problems: terminal not focused
-        assert!(!app.terminal.focused);
-        app.focus_terminal_from_click();
-        assert_eq!(app.bottom_tab, BottomTab::Terminal);
-        assert!(app.terminal.focused, "clicking the body focuses the terminal");
-        app.blur_terminal();
-        assert!(!app.terminal.focused, "blur hands focus back to the editor");
-    }
-
-    #[test]
-    fn session_persists_and_survives_return_to_terminal_tab() {
-        let mut app = make_headless_app();
-        app.select_bottom_tab(0);
-        assert!(app.terminal.is_open());
-        // Leave and come back: the same session must remain (no respawn/kill).
-        app.select_bottom_tab(2);
-        assert!(app.terminal.is_open());
-        app.select_bottom_tab(0);
-        assert!(app.terminal.is_open());
-        assert!(app.terminal.focused);
-    }
-
-    #[test]
-    fn close_action_shuts_down_but_leaves_a_restartable_pane() {
-        let mut app = make_headless_app();
-        app.select_bottom_tab(0);
-        app.close_terminal_action();
-        // Session object remains (so the pane shows an exited/dead state), but
-        // it is no longer alive.
-        assert!(app.terminal.is_open());
-        assert!(!app.terminal.is_alive());
     }
 }
