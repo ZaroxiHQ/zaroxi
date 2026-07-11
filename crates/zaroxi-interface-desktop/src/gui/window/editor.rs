@@ -181,6 +181,11 @@ impl EditorPanel {
         }
     }
 
+    /// Build the bottom-panel base block. The body/title are authoritative only
+    /// as a fallback: the live content (terminal viewport or Problems/Output
+    /// placeholder) is projected on top each frame by
+    /// `TerminalController::apply_bottom_panel`. No static "Ready" text is
+    /// emitted here — the terminal owns this surface.
     pub fn build_bottom_panel_block(
         r: &ShellRegion,
         tokens: &StyleTokens,
@@ -191,15 +196,10 @@ impl EditorPanel {
             .map(|tabs| tabs.join(" \u{2022} "))
             .unwrap_or_else(|| "Terminal \u{2022} Problems \u{2022} Output".to_string());
 
-        let content = terminal_tabs
-            .filter(|t| !t.is_empty())
-            .map(|_tabs| "Ready".to_string())
-            .unwrap_or_else(|| "No terminal session".to_string());
-
         UiBlock {
             id: r.id.to_string(),
             title,
-            content,
+            content: String::new(),
             rect: r.into(),
             header_color: Some(tokens.bottom_panel_header_background.to_array()),
             content_color: Some(tokens.bottom_panel_background.to_array()),

@@ -1,9 +1,9 @@
 use crate::ShellWorkContent;
 use crate::layout_constants::{
     AI_ACTION_BTN_GAP, AI_ACTION_BTN_H, AI_ACTION_BTN_W, AI_ACTION_X_INSET, AI_HEADER_H,
-    AI_INPUT_H, BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP, BRAND_ACCENT_W,
-    BTN_ID_AI_APPLY, BTN_ID_AI_CLOSE, BTN_ID_AI_EXPLAIN, BTN_ID_AI_REJECT, BTN_ID_AI_REVIEW,
-    BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
+    AI_INPUT_H, BOTTOM_TAB_ID_BASE, BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP,
+    BRAND_ACCENT_W, BTN_ID_AI_APPLY, BTN_ID_AI_CLOSE, BTN_ID_AI_EXPLAIN, BTN_ID_AI_REJECT,
+    BTN_ID_AI_REVIEW, BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
     BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
     EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
@@ -358,9 +358,13 @@ pub fn build_shell_widget_tree(
         let tab_h = TERMINAL_TAB_H;
         let tab_y = layout.bottom_panel.y + TERMINAL_TAB_Y_OFFSET;
         let mut tab_x = layout.bottom_panel.x + TERMINAL_TAB_X_OFFSET;
+        // Bottom tabs live in a dedicated WidgetId::Tab index space (offset by
+        // BOTTOM_TAB_ID_BASE) so their clicks never collide with the editor's
+        // unified tab strip. Active-tab styling is cosmetic here (these widgets
+        // are hit-test targets; the visible tab strip is the panel header).
         for (i, label) in tab_labels.iter().enumerate() {
             tree.push(ShellWidget::TabItem {
-                id: WidgetId::tab(10 + i),
+                id: WidgetId::tab(BOTTOM_TAB_ID_BASE + i),
                 rect: Rect::new(tab_x, tab_y, tab_w, tab_h),
                 label: label.clone(),
                 fill_color: if i == 0 {

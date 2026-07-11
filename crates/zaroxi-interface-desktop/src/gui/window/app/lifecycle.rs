@@ -90,6 +90,9 @@ impl winit::application::ApplicationHandler for GuiApp {
         // `request_open` which invalidates and schedules the next frame.
         self.poll_read_results();
 
+        // Drain any integrated-terminal output that arrived since the last wake.
+        self.poll_terminal();
+
         if self.requested_initial_frame {
             self.invalidate(InvalidationFlags::content());
             self.requested_initial_frame = false;
@@ -113,6 +116,7 @@ impl winit::application::ApplicationHandler for GuiApp {
             || self.parse_result_pending()
             || self.background_open_pending
             || self.read_pending
+            || self.terminal.needs_poll()
         {
             // Background work is in flight; poll on a relaxed cadence so the
             // result is applied promptly without pinning a CPU core.
@@ -280,6 +284,7 @@ impl winit::application::ApplicationHandler for GuiApp {
                 self.shift_held = modifiers.state().shift_key();
                 self.ctrl_held = modifiers.state().control_key();
                 self.cmd_held = modifiers.state().super_key();
+                self.alt_held = modifiers.state().alt_key();
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {

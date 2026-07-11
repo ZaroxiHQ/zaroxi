@@ -65,6 +65,27 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             }
             return None;
         }
+        // ── Bottom-panel tabs (Terminal / Problems / Output) ──
+        // These live in a dedicated Tab index space so they never collide with
+        // the editor tab strip. Handled here (before the workspace guard) so the
+        // terminal works even when no workspace is open.
+        WidgetId::Tab { index } if *index >= lc::BOTTOM_TAB_ID_BASE => {
+            app.select_bottom_tab(*index - lc::BOTTOM_TAB_ID_BASE);
+            return None;
+        }
+        // Terminal panel close/restart action (both the header "x" button and
+        // the panel-action variant route here). Kills the shell; Enter/Ctrl+`
+        // restarts it.
+        WidgetId::Button { index: lc::BTN_ID_TERMINAL_CLOSE } => {
+            app.close_terminal_action();
+            return None;
+        }
+        WidgetId::PanelAction { header_id, action }
+            if *header_id == "terminal" && *action == "close" =>
+        {
+            app.close_terminal_action();
+            return None;
+        }
         _ => {}
     }
 

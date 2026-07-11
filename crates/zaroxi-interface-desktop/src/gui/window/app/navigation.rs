@@ -570,6 +570,29 @@ impl GuiApp {
             y,
             self.explorer_button_rect
         );
+        // ── Bottom panel: click-to-focus the terminal / blur on click elsewhere ──
+        // A click in the panel body focuses the terminal (and selects the
+        // Terminal tab). A click anywhere outside the panel relinquishes terminal
+        // focus back to the editor. Header clicks fall through to the tab widgets.
+        if let ElementState::Released = state {
+            let panel = crate::gui::region_dispatch::find_region_by_role(
+                self.layout_controller.shell_regions(),
+                zaroxi_core_engine_style::PanelRole::BottomPanel,
+            )
+            .map(|r| (r.rect.x as f32, r.rect.y as f32, r.rect.width as f32, r.rect.height as f32));
+            if let Some((rx, ry, rw, rh)) = panel {
+                let inside = x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+                let header_h = zaroxi_core_engine_ui::layout_constants::TERMINAL_HEADER_H;
+                if inside && y >= ry + header_h {
+                    self.focus_terminal_from_click();
+                    return;
+                }
+                if !inside && self.terminal.focused {
+                    self.terminal.focused = false;
+                    self.invalidate(InvalidationFlags::content());
+                }
+            }
+        }
         // Unified tab-strip click (file tabs + non-file workbench tabs).
         // Close hits remove the tab; tab hits focus it (file tabs switch
         // the active buffer, non-file tabs become the active tab).

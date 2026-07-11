@@ -2,11 +2,20 @@
 name = "zaroxi-core-platform-terminal"
 version = "0.1.0"
 edition = "2024"
-description = "Terminal integration adapters."
+description = "Integrated terminal backend: PTY process management + VT emulation."
 license = "MIT"
 
 [dependencies]
-# Add crate-specific dependencies when replacing stubbed manifests.
+# Cross-platform PTY layer (Unix openpty + Windows ConPTY) from the WezTerm
+# project. Chosen for its safe, portable API so this crate stays `unsafe`-free.
+portable-pty = "0.9"
+# Pure terminal emulator: VT parser + screen/grid model with scrollback, ANSI
+# colours (16/256/truecolour), cell attributes and alternate-screen support.
+vt100 = "0.16"
+log = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
 
 [lints]
 workspace = true

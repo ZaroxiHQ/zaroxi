@@ -392,6 +392,11 @@ impl GuiApp {
         let poll_parse_results_ms =
             _t_parse.map(|t| t.elapsed().as_secs_f32() * 1000.0).unwrap_or(0.0);
 
+        // Integrated terminal: resize the PTY to the current layout and drain
+        // any pending output before the dirty-check, so live shell output keeps
+        // repainting even when the editor is otherwise idle.
+        self.maintain_terminal();
+
         if frame_trace_enabled() {
             eprintln!(
                 "ZAROXI_FRAME_TRACE: frame={} dirty={} reasons={}",
@@ -1466,6 +1471,22 @@ impl GuiApp {
                     t.elapsed().as_secs_f32() * 1000.0
                 );
             }
+
+            // Bottom panel: project the selected bottom tab onto its block —
+            // the live terminal grid for Terminal (per-cell fg/bg + block
+            // cursor), or a clean placeholder for Problems/Output. Replaces the
+            // legacy static "Ready" body.
+            {
+                let palette = super::terminal::palette_from_tokens(&tokens);
+                let accent = tokens.accent.to_array();
+                let bottom_tab = self.bottom_tab;
+                if let Some(block) =
+                    render_blocks.iter_mut().find(|b| b.id == "center_bottom_panel")
+                {
+                    self.terminal.apply_bottom_panel(bottom_tab, block, &palette, accent);
+                }
+            }
+
             self.explorer_button_rect = explorer_cta_rect;
             self.explorer_search_rect = explorer_search_rect;
             self.sidebar_row_hit_rects = sidebar_rows;

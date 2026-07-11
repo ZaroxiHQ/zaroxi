@@ -50,6 +50,7 @@ mod redraw;
 mod render_schedule;
 mod render_state;
 mod tabs;
+mod terminal;
 #[cfg(test)]
 pub(crate) mod test_support;
 mod ui_nodes;
@@ -152,6 +153,14 @@ pub struct GuiApp {
     /// Edit shortcuts (Save/Undo/Redo/clipboard) accept either Ctrl or Cmd so
     /// the same bindings work on Linux/Windows (Ctrl) and macOS (Cmd).
     pub cmd_held: bool,
+    /// Whether the Alt/Option modifier is held. Used to encode Meta/Alt key
+    /// combinations for the integrated terminal.
+    pub alt_held: bool,
+    /// Integrated terminal controller: owns the PTY-backed shell session,
+    /// keyboard-focus capture, and the bottom-panel render projection.
+    pub terminal: terminal::TerminalController,
+    /// Which bottom-panel tab (Terminal / Problems / Output) is selected.
+    pub bottom_tab: terminal::BottomTab,
     /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
     /// pressure-based shaped-glyph cache eviction.
     pub mem_monitor: zaroxi_core_telemetry::MemoryMonitor,

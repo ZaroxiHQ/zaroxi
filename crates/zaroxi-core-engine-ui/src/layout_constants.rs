@@ -236,6 +236,12 @@ pub const BTN_ID_AI_APPLY: usize = 22;
 pub const BTN_ID_AI_REJECT: usize = 23;
 pub const BTN_ID_EXPLORER_CTA: usize = 30;
 
+/// Base `WidgetId::Tab` index for the bottom-panel tabs (Terminal / Problems /
+/// Output). Deliberately high so it never collides with the editor's unified
+/// tab strip index space (file tabs are 0..N). Bottom tab `i` uses
+/// `BOTTOM_TAB_ID_BASE + i`.
+pub const BOTTOM_TAB_ID_BASE: usize = 900;
+
 // ── WidgetId scrollbar indices ──
 
 pub const SCROLLBAR_ID_BOTTOM: usize = 0;

@@ -14,8 +14,38 @@ use winit::event::MouseScrollDelta;
 use winit::keyboard::{Key, NamedKey};
 
 use zaroxi_core_engine_ui::WidgetAction;
+use zaroxi_core_platform_terminal::TerminalKey;
 
 use super::GuiApp;
+
+/// Whether a logical key is the backquote/grave key (terminal toggle binding).
+fn is_backquote(key: &Key) -> bool {
+    matches!(key, Key::Character(c) if c.as_str() == "`")
+}
+
+/// Translate a winit logical key into a platform-neutral [`TerminalKey`].
+/// Returns `None` for keys the terminal does not consume.
+fn map_terminal_key(logical_key: &Key) -> Option<TerminalKey> {
+    match logical_key {
+        Key::Named(NamedKey::Enter) => Some(TerminalKey::Enter),
+        Key::Named(NamedKey::Backspace) => Some(TerminalKey::Backspace),
+        Key::Named(NamedKey::Tab) => Some(TerminalKey::Tab),
+        Key::Named(NamedKey::Delete) => Some(TerminalKey::Delete),
+        Key::Named(NamedKey::Escape) => Some(TerminalKey::Escape),
+        Key::Named(NamedKey::ArrowUp) => Some(TerminalKey::Up),
+        Key::Named(NamedKey::ArrowDown) => Some(TerminalKey::Down),
+        Key::Named(NamedKey::ArrowLeft) => Some(TerminalKey::Left),
+        Key::Named(NamedKey::ArrowRight) => Some(TerminalKey::Right),
+        Key::Named(NamedKey::Home) => Some(TerminalKey::Home),
+        Key::Named(NamedKey::End) => Some(TerminalKey::End),
+        Key::Named(NamedKey::PageUp) => Some(TerminalKey::PageUp),
+        Key::Named(NamedKey::PageDown) => Some(TerminalKey::PageDown),
+        Key::Named(NamedKey::Insert) => Some(TerminalKey::Insert),
+        Key::Named(NamedKey::Space) => Some(TerminalKey::Char(' ')),
+        Key::Character(s) => s.chars().next().map(TerminalKey::Char),
+        _ => None,
+    }
+}
 
 /// Returns true when the editor content panel is the active focus target.
 /// In the current architecture, the editor is always considered "focused"
@@ -112,6 +142,30 @@ pub(crate) fn classify_editor_key(app: &GuiApp, logical_key: &Key) -> Option<&'s
 }
 
 pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<WidgetAction> {
+    // ── Integrated terminal has keyboard focus: capture ALL input ──
+    // This must run before any editor/explorer routing so shell keystrokes
+    // (including Ctrl/Alt combinations) are never hijacked by editor shortcuts.
+    if app.terminal.focused && app.terminal.is_open() {
+        // Ctrl+` returns keyboard focus to the editor.
+        if (app.ctrl_held || app.cmd_held) && is_backquote(logical_key) {
+            app.blur_terminal();
+            return Vec::new();
+        }
+        // Ctrl+Shift+V (or Cmd+Shift+V) pastes clipboard text into the shell.
+        if (app.ctrl_held || app.cmd_held)
+            && app.shift_held
+            && matches!(logical_key, Key::Character(c) if c.eq_ignore_ascii_case("v"))
+        {
+            app.terminal_paste_clipboard();
+            return Vec::new();
+        }
+        if let Some(tk) = map_terminal_key(logical_key) {
+            app.terminal_send_key(tk);
+        }
+        // Terminal focus is exclusive: swallow everything else.
+        return Vec::new();
+    }
+
     // ── Explorer search box has keyboard focus: route typing to the filter ──
     if app.explorer_search_active {
         match logical_key {
@@ -335,6 +389,11 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
             }
         }
         ref key if app.ctrl_held || app.cmd_held => match key {
+            // Ctrl+` toggles / focuses the integrated terminal.
+            _ if is_backquote(key) => {
+                app.toggle_terminal();
+                Vec::new()
+            }
             // Ctrl+Shift+P: print the consolidated performance dashboard.
             Key::Character(c) if (c == "p" || c == "P") && app.shift_held => {
                 app.dashboard();
@@ -986,6 +1045,21 @@ fn explorer_wheel_rows(delta: &MouseScrollDelta) -> i32 {
     if raw_y > 0.0 { -mag } else { mag }
 }
 
+/// Convert a wheel/trackpad delta into a signed terminal-scrollback step.
+/// Positive = scroll up into history; negative = toward the live prompt.
+fn terminal_wheel_lines(delta: &MouseScrollDelta) -> i32 {
+    let raw = match *delta {
+        MouseScrollDelta::LineDelta(_x, y) => y * 3.0,
+        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 16.0,
+    };
+    if raw == 0.0 {
+        return 0;
+    }
+    let mag = raw.abs().round().max(1.0) as i32;
+    // Wheel-up (positive y) scrolls into history.
+    if raw > 0.0 { mag } else { -mag }
+}
+
 /// True when the pointer currently sits over the explorer sidebar region.
 fn pointer_over_sidebar(app: &GuiApp) -> bool {
     pointer_over_region(app, zaroxi_core_engine_style::PanelRole::SidePanel)
@@ -1018,6 +1092,20 @@ fn pointer_over_region(app: &GuiApp, role: zaroxi_core_engine_style::PanelRole) 
 /// Deltas are accumulated in logical pixels via `pending_vscroll_px` so that
 /// trackpad events and wheel notches both produce smooth sub-line scrolling.
 pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
+    // Terminal scrollback takes precedence when the terminal is focused or the
+    // pointer is over the bottom panel: the wheel walks the emulator history.
+    if app.terminal.is_open()
+        && (app.terminal.focused
+            || pointer_over_region(app, zaroxi_core_engine_style::PanelRole::BottomPanel))
+    {
+        let lines = terminal_wheel_lines(delta);
+        if lines != 0 {
+            app.terminal.scroll(lines);
+            app.invalidate(super::InvalidationFlags::scroll());
+        }
+        return;
+    }
+
     // When the pointer is over the explorer sidebar, scroll the file tree
     // instead of the editor. The offset is clamped against the viewport in the
     // render path; here we only nudge it (saturating at the top).

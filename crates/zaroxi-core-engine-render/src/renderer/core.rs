@@ -2125,7 +2125,42 @@ fn render_frame_inner(
         let title_y = target.y + (hh - DEFAULT_FONT_SIZE) * 0.5;
         let title_color: [f32; 4] = block.text_color.unwrap_or(layout.colors.text_default);
 
-        // Status strip: a header-only block whose `content_spans` carry the
+        // Terminal cell backgrounds: filled quads behind the grid text. Drawn
+        // in the shape pass (before text) using the same content geometry the
+        // spans/cursor paths use, so ANSI backgrounds align to the cell grid.
+        if let Some(ref cell_bg) = block.terminal_cell_bg {
+            let content_x = target.x + content_padding;
+            let content_y = target.y + hh + content_padding;
+            let content_w = (target.w - content_padding * 2.0).max(0.0);
+            let content_h = (target.h - hh - content_padding * 2.0).max(0.0);
+            let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
+            let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
+            if content_w > 0.0 && content_h > 0.0 && char_w > 0.0 {
+                for (row, start_col, run_len, color) in cell_bg {
+                    let x = content_x + *start_col as f32 * char_w;
+                    let y = content_y + *row as f32 * line_h;
+                    let w = (*run_len as f32 * char_w).min((content_x + content_w - x).max(0.0));
+                    if w > 0.0
+                        && y >= content_y
+                        && y + line_h <= content_y + content_h + 0.5
+                        && x >= content_x
+                    {
+                        push_colored_quad(
+                            &mut panel_verts,
+                            &mut panel_indices,
+                            x,
+                            y,
+                            w,
+                            line_h,
+                            *color,
+                            width,
+                            height,
+                            0.0,
+                        );
+                    }
+                }
+            }
+        }
         // right-aligned segments. Render the title left-aligned and those
         // segments right-aligned via the responsive planner so the two groups
         // never overlap. This is the LIVE gui_shell path (`render_to_window` →
@@ -2413,7 +2448,7 @@ fn render_frame_inner(
                     );
                 }
                 let cursor_x = content_x + col as f32 * char_w;
-                let cursor_w = 2.0;
+                let cursor_w = if block.block_cursor { char_w.max(2.0) } else { 2.0 };
                 let cursor_h = line_h;
                 if cursor_x >= content_x
                     && cursor_x + cursor_w <= content_x + content_w

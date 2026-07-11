@@ -61,6 +61,15 @@ pub struct UiBlock {
     /// and line-highlight positioning remain absolute. When `None`, `content`
     /// carries the full document text (backward-compatible path).
     pub content_line_offset: Option<usize>,
+    /// Terminal cell background runs: `(row, start_col, run_len, color)` in
+    /// cell coordinates relative to the block's content area. Drawn as filled
+    /// quads in the shape pass (behind the text) so the integrated terminal can
+    /// render per-cell ANSI backgrounds without a bespoke pipeline. `None` for
+    /// non-terminal blocks.
+    pub terminal_cell_bg: Option<Vec<TerminalCellBg>>,
+    /// When true, `cursor_line`/`cursor_col` render a full-cell block cursor
+    /// (terminal style) instead of the thin editor caret bar.
+    pub block_cursor: bool,
 }
 
 impl Default for UiBlock {
@@ -94,11 +103,17 @@ impl Default for UiBlock {
             content_offset_x: 0.0,
             content_offset_y: 0.0,
             content_line_offset: None,
+            terminal_cell_bg: None,
+            block_cursor: false,
         }
     }
 }
 
 use super::core::Rect;
+
+/// A run of terminal cells sharing one background color, in cell coordinates
+/// relative to a block's content area: `(row, start_col, run_len, rgba)`.
+pub type TerminalCellBg = (usize, usize, usize, [f32; 4]);
 
 #[cfg(test)]
 mod tests {
