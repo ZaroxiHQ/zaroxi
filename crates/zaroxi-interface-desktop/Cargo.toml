@@ -5,6 +5,51 @@ edition = "2024"
 description = "Desktop UI shell glue (editor+gui surface)."
 license = "MIT"
 
+# ── Packaging metadata (release installers) ──────────────────────────────────
+# Consumed by cargo-bundle (macOS .app), cargo-deb (Linux .deb), and cargo-wix
+# (Windows .msi) in the tag-triggered `package-release` CI jobs.
+#
+# ICONS: only cargo-bundle (macOS .app) reads `icon`; cargo-deb and cargo-wix
+# ignore it. Paths are relative to THIS crate's Cargo.toml, so the workspace
+# `assets/img/` folder is `../../assets/img/`. Every listed path MUST exist or
+# `cargo bundle` errors and fails the macOS release job — so keep `icon`
+# COMMENTED OUT until the icon files exist. Create them at assets/img/icon.*
+# (icon.icns for macOS, icon.png general, icon.ico for Windows) and then
+# uncomment the line below. While commented, releases build with a default icon.
+
+[package.metadata.bundle]
+name = "Zaroxi Studio"
+identifier = "com.zaroxi.studio"
+# icon = ["../../assets/img/icon.icns", "../../assets/img/icon.png", "../../assets/img/icon.ico"]
+version = "0.1.0"
+copyright = "Copyright (c) Zaroxi Contributors 2026"
+category = "public.app-category.developer-tools"
+short_description = "AI-first, GPU-rendered code editor"
+long_description = """
+Zaroxi Studio is a native code editor built as a layered Rust
+workspace and drawn end to end on the GPU.
+"""
+
+[package.metadata.deb]
+maintainer = "Zaroxi Contributors"
+copyright = "2026, Zaroxi Contributors"
+# `license-file` is intentionally not set: the crate manifest dir has no LICENSE
+# file, so cargo-deb falls back to the `license = "MIT"` field above.
+extended-description = "AI-first, GPU-rendered code editor built in pure Rust."
+depends = "$auto"
+section = "devel"
+priority = "optional"
+assets = [
+    ["target/release/gui_shell", "usr/bin/zaroxi-studio", "755"],
+]
+
+[package.metadata.wix]
+# UUIDs generated with `uuidgen`; stable for this package's upgrade lineage.
+upgrade-guid = "AF3887F2-0032-4B7C-9812-0212049D3B92"
+path-guid = "330D3677-84DF-411B-BC71-D0FB5E1113DA"
+license = false
+eula = false
+
 [dependencies]
 # Workspace-owned pins (inherit features from workspace)
 tokio = { workspace = true, features = ["full", "macros", "rt-multi-thread", "time"] }

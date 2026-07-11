@@ -1,146 +1,100 @@
 name: Release
 
-# Compiles the desktop app for Linux/macOS/Windows and attaches the packaged
-# binaries (with bundled fonts + Tree-sitter grammars) to the GitHub Release.
+# Single owner of the published GitHub Release for a version tag.
 #
-# Flow: Release Drafter maintains a DRAFT release from merged PRs. Publishing that
-# draft creates the vX.Y.Z tag and fires `release: published`, which runs this
-# workflow. Pushing a `v*` tag manually also triggers the build so binaries are
-# always produced alongside a tag. Each OS job builds a release binary, packages it
-# into an archive with a SHA-256 checksum, and uploads both as release assets.
+# Flow when a `v*` tag is pushed:
+#   1. linux.yml / macos.yml / windows.yml each run their `Package … release
+#      artifacts` job (gated on the same tag) and upload OS artifacts.
+#   2. This workflow waits for all of those package jobs to succeed, downloads
+#      every artifact, and attaches them to the release for the tag.
+#
+# Reconciliation with Release Drafter (release-drafter.yml):
+#   Release Drafter maintains a DRAFT release tagged `v$RESOLVED_VERSION` with
+#   curated, categorized notes assembled from merged PRs. This workflow does
+#   NOT regenerate notes (no `generate_release_notes`, no `body`) so that when
+#   `softprops/action-gh-release` updates the release matching the pushed tag,
+#   the drafter-authored notes are preserved. Net effect: Drafter owns the
+#   NOTES, this workflow owns the ARTIFACTS and the release object — a single
+#   draft per tag, no duplicates.
+#
+# The release stays a draft; review it and publish manually. Publishing fires
+# `release: published`, which drives changelog.yml.
 
 on:
-  release:
-    types: [published]
   push:
-    tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Existing release tag to build & attach assets to (e.g. v0.1.0)'
-        required: true
+    tags: [ 'v*' ]
 
 permissions:
-  contents: write   # upload assets to the release
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  BIN_NAME: gui_shell
-  BIN_CRATE: zaroxi-interface-desktop
+  contents: write
 
 jobs:
-  release:
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: linux-x86_64
-          - os: macos-latest
-            target: macos-arm64
-          - os: windows-latest
-            target: windows-x86_64
+  wait-for-builds:
+    name: Wait for platform builds to complete
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Linux package job
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-name: 'Package Linux release artifacts'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+          allowed-conclusions: success
+
+      # macOS packages via a target matrix, so its check names are suffixed
+      # (e.g. "Package macOS release artifacts (aarch64-apple-darwin)"). A plain
+      # check-name can never match those, so wait on all legs by regexp.
+      - name: Wait for macOS package jobs (all matrix legs)
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-regexp: 'Package macOS release artifacts.*'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+          allowed-conclusions: success
+
+      - name: Wait for Windows package job
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-name: 'Package Windows release artifacts'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+          allowed-conclusions: success
+
+  publish-release:
+    name: Attach all artifacts to the release
+    runs-on: ubuntu-latest
+    needs: wait-for-builds
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux windowing dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev
-
-      - name: Cache cargo + build output
-        uses: actions/cache@v6
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-release-
+          path: dist
+          pattern: '*-release-artifacts*'
+          merge-multiple: true
 
-      - name: Resolve release tag
-        id: tag
-        shell: bash
-        run: |
-          TAG="${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}"
-          if [ -z "$TAG" ]; then echo "No tag resolved" >&2; exit 1; fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: List downloaded files
+        run: find dist -type f
 
-      # The GPU renderer is compiled in by default (interface-desktop depends on
-      # core-engine-render with features=["full_renderer"] unconditionally).
-      - name: Build release binary
-        run: cargo build --release -p "${{ env.BIN_CRATE }}" --bin "${{ env.BIN_NAME }}"
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      # Build the platform grammars so the shipped binary can highlight syntax.
-      # Best-effort: never block producing/attaching the binary itself.
-      - name: Prepare Tree-sitter grammars (bundled with the app)
-        shell: bash
-        run: bash tooling/scripts/prepare-treesitter.sh || echo "grammar prep failed; shipping without bundled grammars"
-
-      - name: Package (Linux / macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          stage="zaroxi-${{ steps.tag.outputs.tag }}-${{ matrix.target }}"
-          mkdir -p "dist/$stage"
-          cp "target/release/${BIN_NAME}" "dist/$stage/"
-          cp -r assets "dist/$stage/assets"
-          # Bundle the Tree-sitter runtime (grammars + queries) next to the binary
-          # so the runtime loader resolves it exe-relative.
-          mkdir -p "dist/$stage/runtime"
-          cp -r crates/zaroxi-core-platform-syntax/runtime/treesitter "dist/$stage/runtime/treesitter" 2>/dev/null || true
-          cp LICENSE README.md "dist/$stage/" 2>/dev/null || true
-          tar -czf "dist/${stage}.tar.gz" -C dist "$stage"
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd dist && sha256sum "${stage}.tar.gz" > "${stage}.tar.gz.sha256")
-          else
-            (cd dist && shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256")
-          fi
-          echo "ASSET=dist/${stage}.tar.gz" >> "$GITHUB_ENV"
-          echo "CHECKSUM=dist/${stage}.tar.gz.sha256" >> "$GITHUB_ENV"
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $stage = "zaroxi-${{ steps.tag.outputs.tag }}-${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path "dist/$stage" | Out-Null
-          Copy-Item "target/release/$env:BIN_NAME.exe" "dist/$stage/"
-          Copy-Item -Recurse "assets" "dist/$stage/assets"
-          if (Test-Path "crates/zaroxi-core-platform-syntax/runtime/treesitter") {
-            New-Item -ItemType Directory -Force -Path "dist/$stage/runtime" | Out-Null
-            Copy-Item -Recurse "crates/zaroxi-core-platform-syntax/runtime/treesitter" "dist/$stage/runtime/treesitter"
-          }
-          if (Test-Path "LICENSE")   { Copy-Item "LICENSE" "dist/$stage/" }
-          if (Test-Path "README.md") { Copy-Item "README.md" "dist/$stage/" }
-          Compress-Archive -Path "dist/$stage/*" -DestinationPath "dist/$stage.zip" -Force
-          (Get-FileHash "dist/$stage.zip" -Algorithm SHA256).Hash.ToLower() + "  $stage.zip" |
-            Out-File -Encoding ascii "dist/$stage.zip.sha256"
-          "ASSET=dist/$stage.zip"          | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
-          "CHECKSUM=dist/$stage.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+      - name: Create or update Release (artifacts only; notes owned by Drafter)
+        uses: softprops/action-gh-release@v2
         with:
-          name: zaroxi-${{ matrix.target }}
-          path: |
-            ${{ env.ASSET }}
-            ${{ env.CHECKSUM }}
-          if-no-files-found: error
-
-      # Attach to the GitHub Release whether it was triggered by a published
-      # release OR a tag push — both produce a tag that maps to a Release.
-      - name: Attach to the release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.tag.outputs.tag }}" "$ASSET" "$CHECKSUM" --clobber
+          name: "Zaroxi Studio ${{ steps.version.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          # Intentionally NO generate_release_notes/body: keep the Release
+          # Drafter draft's curated notes intact when updating this tag's draft.
+          files: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.dmg
+            dist/*.pkg
+            dist/*.msi
