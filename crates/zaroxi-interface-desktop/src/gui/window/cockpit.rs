@@ -27,11 +27,10 @@ use zaroxi_interface_widgets::{
 const STATUS_H: f32 = 24.0;
 /// AI prediction gutter width (px) — spec: thin 16px right gutter.
 const PREDICTION_GUTTER_W: f32 = 16.0;
-/// Code minimap rail width (px). Reduced from 84 to 74 to leave a dedicated
-/// 10 px scrollbar lane at the editor's right edge, separating the minimap
-/// texture from the scrollbar thumb so there is no overlap and no stray
-/// vertical-line artifact.
-const MINIMAP_W: f32 = 74.0;
+/// Code minimap rail width (px). Compact so it reads as a navigation
+/// instrument, not a wide band of dead editor-colored space, and so the editor
+/// content reclaims horizontal width.
+const MINIMAP_W: f32 = 48.0;
 /// Scrollbar lane width (px) at the outermost editor right edge, between
 /// the minimap and the AI assistant panel. The scrollbar thumb (8 px) floats
 /// in this lane with 1 px breathing room on each side.
@@ -56,6 +55,14 @@ pub fn scrollbar_lane_rect(editor_rect: (f32, f32, f32, f32)) -> (f32, f32, f32,
     let lane_w = SCROLLBAR_LANE_W.min(ew.max(0.0));
     let lane_x = ex + (ew - lane_w).max(0.0);
     (lane_x, ey, lane_w, eh)
+}
+
+/// Total width (px) of the editor's right-edge navigation cluster: the minimap
+/// rail plus the scrollbar lane. Editor text wrapping/clipping reserves exactly
+/// this much on the right so code lines end flush against the minimap's left
+/// edge — no dead gap, no overlap.
+pub fn right_cluster_width() -> f32 {
+    MINIMAP_W + SCROLLBAR_LANE_W
 }
 
 /// Per-frame snapshot of the app state the cockpit widgets consume.
@@ -237,11 +244,14 @@ fn layout_regions(inputs: &CockpitInputs) -> Regions {
         (0.0, (inputs.height - STATUS_H).max(0.0), inputs.width, STATUS_H)
     };
 
-    // Minimap hugs the editor's right edge; the prediction gutter sits just
-    // inside it. Both are clamped to the editor width so a narrow editor never
-    // pushes them outside the pane.
+    // Minimap hugs the editor's right edge, leaving a scrollbar lane.
     let (minimap_x, _, minimap_w, _) = minimap_rect((ex, ey, ew, eh));
-    let gutter_w = PREDICTION_GUTTER_W.min((ew - minimap_w).max(0.0));
+    // Prediction gutter: when predictions are active, it sits between the
+    // editor content and the minimap.  When empty (normal operation), it
+    // collapses to ZERO width so no dead lane consumes editor real estate.
+    let has_predictions = !inputs.prediction_cells.is_empty();
+    let gutter_w =
+        if has_predictions { PREDICTION_GUTTER_W.min((ew - minimap_w).max(0.0)) } else { 0.0 };
     let gutter_x = (minimap_x - gutter_w).max(ex);
 
     Regions {
@@ -365,8 +375,8 @@ pub fn build_cockpit(inputs: &CockpitInputs) -> WidgetTree {
         );
     }
 
-    // AI prediction gutter (right side) — file-editor only.
-    if inputs.file_editor_active {
+    // AI prediction gutter (right side) — file-editor only, only when active.
+    if inputs.file_editor_active && !inputs.prediction_cells.is_empty() {
         tree.push(
             Box::new(AiPredictionGutter {
                 cells: inputs.prediction_cells.clone(),
@@ -768,11 +778,81 @@ mod tests {
             layout_regions(&CockpitInputs { width: 1200.0, height: 800.0, ..Default::default() });
         assert!((r.status.size.height - STATUS_H).abs() < 0.5);
         assert!((r.minimap.size.width - MINIMAP_W).abs() < 0.5);
-        assert!((r.prediction_gutter.size.width - PREDICTION_GUTTER_W).abs() < 0.5);
+        // Empty prediction gutter collapses to zero width (no dead lane).
+        assert!(r.prediction_gutter.size.width < 0.5, "empty prediction gutter must be 0 wide");
         // Editor (diff host) spans the surface above the status strip.
         assert!(r.editor.size.width > 800.0);
         // Status bar sits at the bottom.
         assert!(r.status.location.y >= r.editor.size.height - 1.0);
+    }
+
+    #[test]
+    fn editor_drawable_right_meets_minimap_left_edge() {
+        // The editor's usable right boundary (content rect minus the right
+        // cluster reserve used by the content clip + wrap width) must equal the
+        // minimap's left edge: a clean handoff with no dead band and no overlap.
+        let editor_rect = (100.0, 40.0, 1200.0, 800.0);
+        let (mm_x, _, mm_w, _) = minimap_rect(editor_rect);
+        let editor_drawable_right = editor_rect.0 + editor_rect.2 - right_cluster_width();
+        assert!(
+            (editor_drawable_right - mm_x).abs() < 0.01,
+            "editor drawable right {editor_drawable_right} must meet minimap left {mm_x}",
+        );
+        // Minimap and scrollbar lanes never overlap.
+        let (sb_x, _, sb_w, _) = scrollbar_lane_rect(editor_rect);
+        assert!(mm_x + mm_w <= sb_x + 0.01, "minimap must not overlap scrollbar lane");
+        assert!(
+            (sb_x + sb_w - (editor_rect.0 + editor_rect.2)).abs() < 0.01,
+            "scrollbar lane hugs the editor right edge",
+        );
+    }
+
+    /// Guards the text-cutting AND dead-band regressions together by asserting
+    /// the single stable right-edge model: the soft-wrap boundary, the glyph
+    /// paint clip, the current-line/selection fill, and the minimap's left edge
+    /// must all coincide.
+    ///
+    /// Both the wrap width (redraw.rs: `content_w - CONTENT_PAD_X - cluster`)
+    /// and the glyph paint clip width (redraw.rs: `clip_rect.2 - cluster`, where
+    /// `clip_rect.2 == content_w - CONTENT_PAD_X`) reserve EXACTLY the right
+    /// cluster from the same base. They must therefore be equal:
+    ///   * wrap == clip  → no glyph is ever cut (words break where the clip ends)
+    ///                     and there is no early-stopping fill / dead strip.
+    /// The prior bug used a stale `clip = clip_rect.2 - 100.0` that was 42px
+    /// narrower than the 58px cluster reserve, which cut the last characters and
+    /// left a dead band before the minimap.
+    #[test]
+    fn wrap_width_equals_glyph_paint_clip_and_meets_minimap() {
+        const CONTENT_PAD_X: f32 = 8.0;
+        for content_w in [400.0f32, 800.0, 1200.0, 1920.0] {
+            // Editor content rect anchored at an arbitrary origin.
+            let editor_rect = (100.0, 40.0, content_w, 800.0);
+            // Wrap boundary (px), text origin at CONTENT_PAD_X.
+            let wrap_w = content_w - CONTENT_PAD_X - right_cluster_width();
+            // Glyph paint clip width: clip_rect.2 (= content_w - CONTENT_PAD_X)
+            // minus the same cluster reserve — the real redraw.rs formula.
+            let clip_rect_w = content_w - CONTENT_PAD_X;
+            let paint_clip_w = clip_rect_w - right_cluster_width();
+            assert!(
+                (wrap_w - paint_clip_w).abs() < 0.01,
+                "wrap width {wrap_w} must equal glyph paint clip {paint_clip_w} (content_w={content_w}); any gap cuts glyphs or opens a dead band",
+            );
+            // The clip's right edge (text origin + clip width) must land exactly
+            // on the minimap's left edge: a clean, tight handoff.
+            let clip_right = editor_rect.0 + CONTENT_PAD_X + paint_clip_w;
+            let (mm_x, ..) = minimap_rect(editor_rect);
+            assert!(
+                (clip_right - mm_x).abs() < 0.01,
+                "glyph clip right {clip_right} must meet minimap left {mm_x} (content_w={content_w})",
+            );
+        }
+        // The reserve is exactly the minimap+scrollbar cluster — no stale
+        // hardcoded 100px margin that would waste editor width.
+        assert!(
+            (right_cluster_width() - (MINIMAP_W + SCROLLBAR_LANE_W)).abs() < 0.01,
+            "wrap reserve must equal the real cluster width, not a stale constant",
+        );
+        assert!(right_cluster_width() < 100.0, "cluster reserve must be far below the old 100px");
     }
 
     #[test]

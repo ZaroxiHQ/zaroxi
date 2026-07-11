@@ -986,13 +986,17 @@ impl GuiApp {
             let syntax_t = std::time::Instant::now();
             let wrap_chars_per_row = {
                 let available_w = if self.tab_state.is_editor_active() {
+                    // Reserve exactly the right-edge cluster (minimap + scrollbar
+                    // lane) so code wraps flush against the minimap's left edge
+                    // with no dead gap between the last character and the minimap.
+                    let cluster = super::super::cockpit::right_cluster_width();
                     editor_region
-                        .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0 - 100.0)
+                        .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X - cluster)
                         .unwrap_or(600.0)
                         .max(40.0)
                 } else {
                     editor_region
-                        .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X * 2.0)
+                        .map(|r| r.rect.width as f32 - lc::CONTENT_PAD_X)
                         .unwrap_or(600.0)
                         .max(40.0)
                 };
@@ -1673,8 +1677,26 @@ impl GuiApp {
                         block.cursor_line = Some(vis_cursor_line);
                         block.cursor_col = Some(vis_cursor_col);
                         block.selection_range = selection_range;
+                        // Glyph paint clip / line-highlight / selection right edge.
+                        // The editor reserves EXACTLY the right-edge cluster
+                        // (minimap + scrollbar lane) — the same reserve the wrap
+                        // width uses above — so the paint clip ends precisely at
+                        // the minimap's left edge. This is the single stable
+                        // right-edge model:
+                        //   clip_right == wrap_right == minimap_left
+                        // Consequences:
+                        //   * wrap width == paint clip width  → no glyph is cut
+                        //     (wrapped lines break exactly where the clip ends).
+                        //   * highlight/selection fill to the minimap's edge  →
+                        //     no dead band, no early stop.
+                        //   * the opaque minimap begins where text stops  → no
+                        //     glyph/minimap collision, no fake gap.
+                        // The previous stale `- 100.0` here was 42px narrower
+                        // than the (58px) cluster reserve, which both cut the
+                        // last characters and opened a dead strip before the
+                        // minimap.
                         let clip_w = if self.tab_state.is_editor_active() {
-                            (vp.clip_rect.2 - 100.0).max(0.0)
+                            (vp.clip_rect.2 - super::super::cockpit::right_cluster_width()).max(0.0)
                         } else {
                             vp.clip_rect.2
                         };

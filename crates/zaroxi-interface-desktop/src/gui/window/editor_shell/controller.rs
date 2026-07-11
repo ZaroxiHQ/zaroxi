@@ -284,8 +284,8 @@ mod tests {
             l.sidebar_rect.2
         );
         assert!(
-            l.assistant_rect.2 < 200.0,
-            "assistant w={} should shrink below 200 at 500px",
+            l.assistant_rect.2 < 300.0,
+            "assistant w={} should collapse at 500px",
             l.assistant_rect.2
         );
     }
@@ -294,7 +294,7 @@ mod tests {
     fn full_layout_at_wide() {
         let l = compute_layout(1400.0, 900.0);
         assert!(l.sidebar_rect.2 >= 250.0, "sidebar should be near full at 1400px");
-        assert!(l.assistant_rect.2 >= 280.0, "assistant should be near full at 1400px");
+        assert!(l.assistant_rect.2 >= 350.0, "assistant should be near full at 1400px");
     }
 
     #[test]

@@ -39,10 +39,14 @@ impl EditorViewport {
         let inset_x = CONTENT_PAD_X;
         let inset_y = CONTENT_PAD_Y;
 
+        // No right inset: the minimap rail occupies the rightmost portion of
+        // the content rect and the text should render up to its boundary rather
+        // than stopping 8px short, which creates a visible dead gap between the
+        // end of code lines and the minimap texture.
         let clip = (
             content_rect.0 + inset_x,
             content_rect.1 + inset_y,
-            (content_rect.2 - inset_x * 2.0).max(0.0),
+            content_rect.2 - inset_x, // left inset only
             (content_rect.3 - inset_y * 2.0).max(0.0),
         );
 

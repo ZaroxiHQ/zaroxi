@@ -93,8 +93,9 @@ pub struct Minimap {
 }
 
 impl Minimap {
-    /// Left seam + content padding inset.
-    const PAD_LEFT: f64 = 5.0;
+    /// No left padding — the minimap texture starts immediately adjacent to
+    /// the editor code, with no gap and no visible seam.
+    const PAD_LEFT: f64 = 0.0;
     /// Right padding before the search-marker lane.
     const PAD_RIGHT: f64 = 3.0;
     /// Width of the dedicated right lane reserved for search-hit ticks.
@@ -126,11 +127,13 @@ impl ZaroxiWidget for Minimap {
         if r.width() <= 0.0 || r.height() <= 0.0 {
             return;
         }
-        // Rail background — sits quietly, a hair distinct from the editor.
-        fill(scene, &r, theme.editor_gutter_background);
-        // Left seam hairline so the rail reads as an edge instrument.
-        stroke(scene, 1.0, &Line::new((r.x0, r.y0), (r.x0, r.y1)), theme.divider_subtle);
-
+        // Opaque background matching the editor content area. This covers any
+        // editor text/highlight that paints beneath the minimap (the editor's
+        // glyph clip extends under the rail) so glyphs are never half-drawn or
+        // overlapped by the texture — no "cut words". Because it is the SAME
+        // colour as the editor, there is no visible seam or dead band: the
+        // handoff reads as continuous, and the texture marks float on top.
+        fill(scene, &r, theme.editor_background);
         let rows = self.projection.source_rows();
         if rows == 0 {
             return;
@@ -151,8 +154,11 @@ impl ZaroxiWidget for Minimap {
             };
             let band_top = r.y0 + i as f64 * row_h;
             let y = band_top + (row_h - mark_h) * 0.5;
-            let x0 = lane_x0 + row.indent as f64 * lane_w * 0.5;
-            let w = (row.occupancy as f64 * lane_w * (1.0 - row.indent as f64 * 0.35))
+            // Indentation shifts the mark right, but only gently (0.28 of the
+            // lane) so the texture stays visually tight against the editor's
+            // left edge instead of leaving a wide empty margin for nested code.
+            let x0 = lane_x0 + row.indent as f64 * lane_w * 0.28;
+            let w = (row.occupancy as f64 * lane_w * (1.0 - row.indent as f64 * 0.2))
                 .max(1.0)
                 .min(lane_x1 - x0);
             if w <= 0.0 {
@@ -514,6 +520,9 @@ impl ZaroxiWidget for AiPredictionGutter {
 
     fn paint(&self, scene: &mut Scene, layout: &taffy::Layout, theme: &SemanticColors) {
         let r = layout_rect(layout);
+        if self.cells.is_empty() {
+            return;
+        }
         fill(scene, &r, theme.elevated_panel_background);
         let pulse_a = pulse(self.phase);
         for cell in &self.cells {

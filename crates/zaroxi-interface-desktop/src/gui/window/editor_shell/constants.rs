@@ -34,7 +34,7 @@ pub const AI_HEADER_H: f32 = 28.0;
 // ── Flex basis / responsive ──
 
 pub const SIDEBAR_BASIS_W: f32 = 280.0;
-pub const ASSISTANT_BASIS_W: f32 = 300.0;
+pub const ASSISTANT_BASIS_W: f32 = 400.0;
 pub const MINIMAP_BASIS_W: f32 = 60.0;
 pub const EDITOR_MIN_W: f32 = 120.0;
 pub const EDITOR_MIN_H: f32 = 40.0;
