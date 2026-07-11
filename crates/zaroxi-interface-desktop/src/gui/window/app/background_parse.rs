@@ -46,16 +46,16 @@ fn highlight_with_reason(
     pool: &ParserPool,
     language: LanguageId,
     text: &str,
-) -> (Vec<HighlightSpan>, &'static str, bool) {
+) -> (Vec<HighlightSpan>, &'static str, bool, Vec<ParseError>) {
     if language == LanguageId::PlainText {
-        return (Vec::new(), "disabled_by_language_detection", false);
+        return (Vec::new(), "disabled_by_language_detection", false, Vec::new());
     }
     if text.len() > MAX_PARSE_TEXT_BYTES {
-        return (Vec::new(), "disabled_by_budget_policy", false);
+        return (Vec::new(), "disabled_by_budget_policy", false, Vec::new());
     }
     let mut parser = match pool.acquire(&language) {
         Some(p) => p,
-        None => return (Vec::new(), "parse_failed", true),
+        None => return (Vec::new(), "parse_failed", true, Vec::new()),
     };
     let tree = parser.parse(text, None);
     // `had_error` is true when Tree-sitter could not fully parse the text — the
@@ -67,6 +67,46 @@ fn highlight_with_reason(
         Some(t) => t.root_node().has_error(),
         None => true,
     };
+    // Real syntax diagnostics: only walk the tree when it actually contains
+    // errors (the uncommon case), so well-formed files pay nothing. Bounded in
+    // both errors collected and nodes visited to stay cheap on pathological
+    // input. Positions are real Tree-sitter ERROR/MISSING node locations. The
+    // walk is inlined so it stays independent of the exact Tree-sitter version
+    // the syntax crate links (no `tree_sitter` type is named here).
+    let mut errors: Vec<ParseError> = Vec::new();
+    if had_error && let Some(t) = tree.as_ref() {
+        let mut cursor = t.root_node().walk();
+        let mut visited = 0usize;
+        'walk: loop {
+            let node = cursor.node();
+            visited += 1;
+            if node.is_error() || node.is_missing() {
+                let p = node.start_position();
+                errors.push(ParseError {
+                    line: p.row as u32,
+                    column: p.column as u32,
+                    missing: node.is_missing(),
+                });
+                if errors.len() >= MAX_PARSE_ERRORS {
+                    break;
+                }
+            }
+            if visited >= MAX_ERROR_WALK_NODES {
+                break;
+            }
+            if cursor.goto_first_child() {
+                continue;
+            }
+            loop {
+                if cursor.goto_next_sibling() {
+                    break;
+                }
+                if !cursor.goto_parent() {
+                    break 'walk;
+                }
+            }
+        }
+    }
     let spans = match tree.as_ref() {
         Some(t) => HighlightEngine::new().highlight(language, text, t).unwrap_or_default(),
         None => Vec::new(),
@@ -79,8 +119,14 @@ fn highlight_with_reason(
     } else {
         "enabled"
     };
-    (spans, reason, had_error)
+    (spans, reason, had_error, errors)
 }
+
+/// Maximum syntax errors surfaced from a single parse (keeps the Problems list
+/// bounded on badly-broken input).
+const MAX_PARSE_ERRORS: usize = 100;
+/// Maximum tree nodes visited while collecting errors (cheap upper bound).
+const MAX_ERROR_WALK_NODES: usize = 40_000;
 
 /// The full-buffer highlight computation plus the metadata needed to enforce
 /// coverage precedence (Part 5): whether the parse was degraded (`had_error`),
@@ -97,6 +143,20 @@ pub struct SpanComputation {
     pub source_len: usize,
     /// Highest `span.end` produced — the last byte the highlighting reaches.
     pub coverage_end: usize,
+    /// Real syntax-error positions (ERROR/MISSING nodes) for the Problems pane.
+    pub errors: Vec<ParseError>,
+}
+
+/// A single real syntax error/missing-token location from the parse tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError {
+    /// 0-based line (Tree-sitter row).
+    pub line: u32,
+    /// 0-based column.
+    pub column: u32,
+    /// True for a MISSING node (an expected token the grammar inserted),
+    /// false for an ERROR node (unexpected input).
+    pub missing: bool,
 }
 
 /// Compute highlight spans for `text` and return them alongside coverage
@@ -108,7 +168,7 @@ pub fn compute_spans_detailed(
     language: LanguageId,
     text: &str,
 ) -> SpanComputation {
-    let (spans, reason, had_error) = highlight_with_reason(pool, language, text);
+    let (spans, reason, had_error, errors) = highlight_with_reason(pool, language, text);
     let coverage_end = spans.iter().map(|s| s.end).max().unwrap_or(0);
     if syntax_trace_enabled() {
         eprintln!(
@@ -122,7 +182,7 @@ pub fn compute_spans_detailed(
             coverage_end,
         );
     }
-    SpanComputation { spans, had_error, source_len: text.len(), coverage_end }
+    SpanComputation { spans, had_error, source_len: text.len(), coverage_end, errors }
 }
 
 /// A retained, error-free full-buffer highlight baseline for the active NORMAL
@@ -166,6 +226,8 @@ pub struct ParseResult {
     /// The file identity the parsed snapshot belonged to (see
     /// [`BufferSnapshot::owner`]).
     pub owner: Option<String>,
+    /// Real syntax-error positions for the Problems pane (empty when clean).
+    pub errors: Vec<ParseError>,
 }
 
 /// A background worker that receives buffer snapshots and produces
@@ -292,7 +354,8 @@ impl BackgroundParseWorker {
             // budget here is the SAME constant as the backend large-file
             // boundary, so a rope-backed normal file is never rejected and a
             // large file's (already viewport-scoped) text always parses.
-            let (spans, reason, _had_error) = highlight_with_reason(&pool, lang, &snapshot.text);
+            let (spans, reason, _had_error, errors) =
+                highlight_with_reason(&pool, lang, &snapshot.text);
             let dur = start.elapsed().as_micros() as u64;
 
             if syntax_trace_enabled() {
@@ -322,6 +385,7 @@ impl BackgroundParseWorker {
                 incremental: false,
                 duration_us: dur,
                 owner,
+                errors,
             });
         }
     }

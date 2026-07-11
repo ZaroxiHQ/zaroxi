@@ -1092,18 +1092,36 @@ fn pointer_over_region(app: &GuiApp, role: zaroxi_core_engine_style::PanelRole) 
 /// Deltas are accumulated in logical pixels via `pending_vscroll_px` so that
 /// trackpad events and wheel notches both produce smooth sub-line scrolling.
 pub(crate) fn process_mouse_wheel(app: &mut GuiApp, delta: &MouseScrollDelta) {
-    // Terminal scrollback takes precedence when the terminal is focused or the
-    // pointer is over the bottom panel: the wheel walks the emulator history.
-    if app.terminal.is_open()
-        && (app.terminal.focused
-            || pointer_over_region(app, zaroxi_core_engine_style::PanelRole::BottomPanel))
-    {
-        let lines = terminal_wheel_lines(delta);
-        if lines != 0 {
-            app.terminal.scroll(lines);
-            app.invalidate(super::InvalidationFlags::scroll());
+    use super::terminal::BottomTab;
+
+    // Bottom panel gets wheel input when the terminal is focused or the pointer
+    // hovers the panel. Which surface scrolls depends on the active tab:
+    //   - Terminal → the emulator scrollback,
+    //   - Problems / Output → the panel's row scroll offset.
+    let over_bottom = pointer_over_region(app, zaroxi_core_engine_style::PanelRole::BottomPanel);
+    if over_bottom || (app.terminal.focused && app.bottom_tab == BottomTab::Terminal) {
+        match app.bottom_tab {
+            BottomTab::Terminal => {
+                if app.terminal.is_open() {
+                    let lines = terminal_wheel_lines(delta);
+                    if lines != 0 {
+                        app.terminal.scroll(lines);
+                        app.invalidate(super::InvalidationFlags::scroll());
+                    }
+                    return;
+                }
+            }
+            BottomTab::Problems | BottomTab::Output => {
+                let rows = explorer_wheel_rows(delta);
+                if rows > 0 {
+                    app.bottom_scroll = app.bottom_scroll.saturating_add(rows as usize);
+                } else if rows < 0 {
+                    app.bottom_scroll = app.bottom_scroll.saturating_sub((-rows) as usize);
+                }
+                app.invalidate(super::InvalidationFlags::scroll());
+                return;
+            }
         }
-        return;
     }
 
     // When the pointer is over the explorer sidebar, scroll the file tree

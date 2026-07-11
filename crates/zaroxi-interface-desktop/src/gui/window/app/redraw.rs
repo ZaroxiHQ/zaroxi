@@ -397,6 +397,9 @@ impl GuiApp {
         // repainting even when the editor is otherwise idle.
         self.maintain_terminal();
 
+        // Rebuild the Problems list from real diagnostics for this frame.
+        self.refresh_problems();
+
         if frame_trace_enabled() {
             eprintln!(
                 "ZAROXI_FRAME_TRACE: frame={} dirty={} reasons={}",
@@ -1472,18 +1475,28 @@ impl GuiApp {
                 );
             }
 
-            // Bottom panel: project the selected bottom tab onto its block —
-            // the live terminal grid for Terminal (per-cell fg/bg + block
-            // cursor), or a clean placeholder for Problems/Output. Replaces the
-            // legacy static "Ready" body.
+            // Bottom panel: project the selected bottom tab onto its block via
+            // the single unified rendering path — the live terminal grid for
+            // Terminal, the real diagnostics list for Problems, or the in-app
+            // log stream for Output. Borrows only disjoint app fields so it is
+            // safe under the window borrow.
             {
                 let palette = super::terminal::palette_from_tokens(&tokens);
-                let accent = tokens.accent.to_array();
                 let bottom_tab = self.bottom_tab;
+                let scroll = self.bottom_scroll;
                 if let Some(block) =
                     render_blocks.iter_mut().find(|b| b.id == "center_bottom_panel")
                 {
-                    self.terminal.apply_bottom_panel(bottom_tab, block, &palette, accent);
+                    super::bottom_panel::render_tab(
+                        bottom_tab,
+                        &self.terminal,
+                        &self.problems,
+                        &self.output_log,
+                        scroll,
+                        block,
+                        &palette,
+                        &tokens,
+                    );
                 }
             }
 

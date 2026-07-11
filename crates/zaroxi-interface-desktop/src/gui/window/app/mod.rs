@@ -39,6 +39,7 @@ mod activation;
 pub(crate) mod background_open;
 pub(crate) mod background_parse;
 pub(crate) mod background_read;
+mod bottom_panel;
 pub(crate) mod debug;
 pub mod editor_group;
 mod editor_interaction;
@@ -161,6 +162,18 @@ pub struct GuiApp {
     pub terminal: terminal::TerminalController,
     /// Which bottom-panel tab (Terminal / Problems / Output) is selected.
     pub bottom_tab: terminal::BottomTab,
+    /// Scroll offset (in rows) for the non-terminal bottom tabs (Problems /
+    /// Output). The Terminal tab uses its own emulator scrollback instead.
+    pub bottom_scroll: usize,
+    /// The merged, render-ready problems list for the active buffer, rebuilt
+    /// each frame from real parser diagnostics + any provider diagnostics.
+    pub problems: Vec<bottom_panel::Problem>,
+    /// Real syntax problems captured from the last parse of the active buffer.
+    pub parse_problems: Vec<bottom_panel::Problem>,
+    /// The file identity `parse_problems` belongs to (dropped on file switch).
+    pub parse_problems_owner: Option<String>,
+    /// In-app operational log stream shown in the Output tab.
+    pub output_log: crate::output_log::OutputLog,
     /// Frame-paced process memory monitor (`ZAROXI_MEM_TRACE`) driving
     /// pressure-based shaped-glyph cache eviction.
     pub mem_monitor: zaroxi_core_telemetry::MemoryMonitor,
