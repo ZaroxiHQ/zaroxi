@@ -315,8 +315,14 @@ for toml in "${CRATE_TOMLS[@]}"; do
 
   # Strip TOML comments (full-line and inline) before scanning for dependency
   # tokens so that explanatory comments mentioning other crates are never
-  # misread as real dependency edges.
-  deps=$(sed 's/#.*$//' "$toml" | grep -E "zaroxi[-_][a-z0-9\-_/]+" || true)
+  # misread as real dependency edges. Also drop any `[package.metadata.*]`
+  # tables first: those carry packaging strings (e.g. the cargo-deb install
+  # path `usr/bin/zaroxi-studio`) that are NOT dependency edges and would
+  # otherwise be misparsed as unknown-family crates.
+  deps=$(awk '
+      /^[[:space:]]*\[\[?[A-Za-z_]/ { in_meta = ($0 ~ /^[[:space:]]*\[package\.metadata/) }
+      !in_meta { print }
+    ' "$toml" | sed 's/#.*$//' | grep -E "zaroxi[-_][a-z0-9\-_/]+" || true)
   if [ -z "$deps" ]; then
     log_pass "cargo-deps: $crate_name declares no zaroxi-* deps"
     continue

@@ -815,9 +815,10 @@ mod tests {
     /// Both the wrap width (redraw.rs: `content_w - CONTENT_PAD_X - cluster`)
     /// and the glyph paint clip width (redraw.rs: `clip_rect.2 - cluster`, where
     /// `clip_rect.2 == content_w - CONTENT_PAD_X`) reserve EXACTLY the right
-    /// cluster from the same base. They must therefore be equal:
-    ///   * wrap == clip  → no glyph is ever cut (words break where the clip ends)
-    ///                     and there is no early-stopping fill / dead strip.
+    /// cluster from the same base. They must therefore be equal: when
+    /// `wrap == clip` no glyph is ever cut (words break where the clip ends) and
+    /// there is no early-stopping fill / dead strip.
+    ///
     /// The prior bug used a stale `clip = clip_rect.2 - 100.0` that was 42px
     /// narrower than the 58px cluster reserve, which cut the last characters and
     /// left a dead band before the minimap.
