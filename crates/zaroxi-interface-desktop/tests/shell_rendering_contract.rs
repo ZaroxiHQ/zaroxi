@@ -48,13 +48,14 @@ fn content_block_id_predicate_matches_live_block_ids() {
 }
 
 /// The visible_lines_from_region formula matches the renderer's content_h
-/// calculation: region_h - CONTENT_HEADER_H - 2*CONTENT_PAD_X.
+/// calculation: region_h - CONTENT_HEADER_H - 2*CONTENT_PAD_X, divided by the
+/// editor line height (LINE_HEIGHT = 18).
 #[test]
 fn visible_lines_matches_renderer_content_math() {
-    assert_eq!(lc::visible_lines_from_region(44.0), 1usize); // (44-28-16)/16 = 0, max 1
-    assert_eq!(lc::visible_lines_from_region(60.0), 1); // (60-44)/16 = 1
-    assert_eq!(lc::visible_lines_from_region(108.0), 4); // (108-44)/16 = 4
-    assert_eq!(lc::visible_lines_from_region(4.0), 1); // (4-44)/16 negative, max 1
+    assert_eq!(lc::visible_lines_from_region(44.0), 1usize); // (44-44)/18 = 0, max 1
+    assert_eq!(lc::visible_lines_from_region(62.0), 1); // (62-44)/18 = 1
+    assert_eq!(lc::visible_lines_from_region(116.0), 4); // (116-44)/18 = 4
+    assert_eq!(lc::visible_lines_from_region(4.0), 1); // (4-44)/18 negative, max 1
 }
 
 /// Taller editor regions yield more visible lines (monotonic).
@@ -85,9 +86,9 @@ fn clip_bounds_preserve_text_while_culling_glyphs() {
 #[test]
 fn scroll_top_line_maps_to_content_offset_y() {
     let top_line = 5usize;
-    let line_h = 16.0f32;
+    let line_h = lc::LINE_HEIGHT;
     let offset = top_line as f32 * line_h;
-    assert_eq!(offset, 80.0);
+    assert_eq!(offset, 90.0);
     // top_line 0 = no offset (first line visible)
     assert_eq!(0.0, 0.0 * line_h);
 }

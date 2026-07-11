@@ -690,7 +690,11 @@ pub(crate) fn scroll_top_visual_band(
 ///   row is the absolute logical line (the renderer offsets it by the scroll
 ///   origin via `content_offset_y`).
 /// - When wrapping, the row is the caret line's first visual row within the
-///   window plus the wrapped sub-row implied by the visual column.
+///   window plus `cursor_sub_row` — the wrapped sub-row the caret's column
+///   falls on. `cursor_sub_row` is computed by
+///   [`editor_presenter::wrapped_caret_subrow_col`] from the SAME word-boundary
+///   plan the renderer wrapped with, so it is correct even when rows have
+///   unequal widths (word wrap), not a fixed `chars_per_row` stride.
 ///
 /// If the caret's logical line is not present in the window map (off-window or a
 /// transiently stale map), it clamps to the nearest edge — the LAST row when the
@@ -699,7 +703,7 @@ pub(crate) fn scroll_top_visual_band(
 /// did not produce.
 pub(crate) fn caret_visual_row(
     logical_cursor: usize,
-    cursor_visual_col: usize,
+    cursor_sub_row: usize,
     visual_to_logical: &[usize],
     chars_per_row: usize,
 ) -> usize {
@@ -724,7 +728,7 @@ pub(crate) fn caret_visual_row(
     });
     let wrapped_rows_for_line =
         visual_to_logical.iter().filter(|&&ll| ll == logical_cursor).count().saturating_sub(1);
-    base + (cursor_visual_col / chars_per_row.max(1)).min(wrapped_rows_for_line)
+    base + cursor_sub_row.min(wrapped_rows_for_line)
 }
 
 // ── Large-file thresholds ──
@@ -946,7 +950,16 @@ impl GuiApp {
         let wrap_offset = self.editor_wrap_visual_offset;
         let map = &self.editor_visual_to_logical;
         // The caret's visual row within the current window (index into the map).
-        let caret_idx = caret_visual_row(caret_line, caret_vis_col, map, cp);
+        // Its wrapped sub-row is derived from the caret line's own word-boundary
+        // plan, matching the rendered rows even with unequal-width word wrap.
+        let caret_line_text = self.editor_buffer.rope().line(caret_line).unwrap_or_default();
+        let (caret_sub_row, _) =
+            crate::gui::window::presenters::editor_presenter::wrapped_caret_subrow_col(
+                &caret_line_text,
+                cp,
+                caret_vis_col,
+            );
+        let caret_idx = caret_visual_row(caret_line, caret_sub_row, map, cp);
         let trace = caret_trace_enabled();
 
         let mut changed = false;
@@ -1318,10 +1331,18 @@ mod caret_projection_tests {
     #[test]
     fn wrapped_line_caret_advances_to_correct_subrow() {
         // Window map: row 0=line0, 1=line1, 2/3/4=line2 (wrapped over 3 rows),
-        // 5=line3. Caret on line 2 at visual col 25 with 10 chars/row → sub-row
-        // 2 → base row 2 + 2 = 4.
+        // 5=line3. Caret on line 2 at wrapped sub-row 2 → base row 2 + 2 = 4.
+        // (The sub-row is precomputed from the line's word-boundary plan.)
         let map = [0, 1, 2, 2, 2, 3];
-        assert_eq!(caret_visual_row(2, 25, &map, 10), 4);
+        assert_eq!(caret_visual_row(2, 2, &map, 10), 4);
+    }
+
+    #[test]
+    fn wrapped_line_caret_subrow_clamps_to_available_rows() {
+        // A sub-row beyond the line's wrapped rows clamps to the last row of the
+        // line (line2 spans rows 2..=4 → clamp to row 4), never past it.
+        let map = [0, 1, 2, 2, 2, 3];
+        assert_eq!(caret_visual_row(2, 9, &map, 10), 4);
     }
 
     #[test]

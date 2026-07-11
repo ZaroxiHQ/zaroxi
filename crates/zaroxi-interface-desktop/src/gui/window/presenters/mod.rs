@@ -1,5 +1,5 @@
 mod ai_presenter;
-mod editor_presenter;
+pub(crate) mod editor_presenter;
 mod explorer_presenter;
 mod status_presenter;
 

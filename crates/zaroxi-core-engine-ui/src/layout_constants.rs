@@ -146,7 +146,12 @@ pub const SB_BOTTOM_SPEC: ScrollbarSpec = ScrollbarSpec {
 
 pub const CONTENT_PAD_X: f32 = 8.0;
 pub const CONTENT_PAD_Y: f32 = 4.0;
-pub const LINE_HEIGHT: f32 = 16.0;
+/// Editor body line height (px). MUST equal the renderer's editor `line_h`
+/// (`DEFAULT_FONT_SIZE 14 + EDITOR_LINE_LEADING 4`) so vertical scroll, caret
+/// row, gutter, and scrollbar math line up with the rendered rows. Raised from
+/// 16 to 18 for calmer, more readable line spacing (esp. wrapped prose) without
+/// wasting vertical space in code.
+pub const LINE_HEIGHT: f32 = 18.0;
 pub const CHAR_WIDTH_STUB: f32 = 8.0;
 pub const CONTENT_HEADER_H: f32 = 28.0;
 

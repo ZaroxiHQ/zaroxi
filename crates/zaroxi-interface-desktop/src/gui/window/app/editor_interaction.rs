@@ -36,6 +36,7 @@ pub(crate) fn project_editor_cursor(
     visual_to_logical: &[usize],
     chars_per_row: usize,
     wrap_visual_offset: usize,
+    line_text: impl Fn(usize) -> String,
 ) -> Option<(usize, usize)> {
     let px = cursor_pos.x as f32;
     let py = cursor_pos.y as f32;
@@ -71,12 +72,25 @@ pub(crate) fn project_editor_cursor(
     if !visual_to_logical.is_empty() && chars_per_row > 0 {
         let visual_row = wrap_visual_offset + visible_line;
         let logical_line = visual_to_logical.get(visual_row).copied().unwrap_or(0);
+        // Which wrapped sub-row of this logical line was clicked.
         let sub_line_offset = visual_to_logical
             [wrap_visual_offset..visual_row.min(visual_to_logical.len())]
             .iter()
             .filter(|&&ll| ll == logical_line)
             .count();
-        let logical_col = col + sub_line_offset * chars_per_row;
+        // Inverse of the render-side wrap: the clicked sub-row begins at a
+        // specific visual column within the logical line. With word-boundary
+        // wrapping those rows have UNEQUAL widths, so recover the row's start
+        // column from the same plan the renderer used instead of assuming a
+        // fixed `sub_line_offset * chars_per_row` stride (which mislands the
+        // caret on wrapped lines).
+        let plan = crate::gui::window::presenters::editor_presenter::plan_line_wrap(
+            &line_text(logical_line),
+            chars_per_row,
+        );
+        let row_start_col =
+            plan.get(sub_line_offset).map(|&(_, c)| c).unwrap_or(sub_line_offset * chars_per_row);
+        let logical_col = row_start_col + col;
         return Some((logical_line, logical_col));
     }
 
@@ -142,6 +156,7 @@ pub(crate) fn init_selection_from_click(app: &mut GuiApp) {
                 &v2l,
                 cpr,
                 wvo,
+                |l| app.editor_buffer.rope().line(l).unwrap_or_default(),
             ) {
                 app.editor_buffer.set_caret_line_vis_col(line, vis_col);
                 app.editor_buffer.begin_selection();
@@ -176,6 +191,7 @@ pub(crate) fn update_drag_selection(app: &mut GuiApp, position: PhysicalPosition
             &v2l,
             cpr,
             wvo,
+            |l| app.editor_buffer.rope().line(l).unwrap_or_default(),
         ) {
             let line_str = app.editor_buffer.rope().line(line).unwrap_or_default();
             let raw_col = crate::gui::window::editor_buf::EditorBufferState::vis_to_raw_col(

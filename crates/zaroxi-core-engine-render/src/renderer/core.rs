@@ -7,6 +7,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static GUI_TEXT_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static GPU_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// Extra vertical leading added to the editor font size to form the body line
+/// height (`line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING`). Raised from the
+/// old cramped `2.0` to give wrapped/prose text more breathing room. MUST stay
+/// equal to `zaroxi_core_engine_ui::layout_constants::LINE_HEIGHT - DEFAULT_FONT_SIZE`
+/// (18 - 14) so the layout's scroll/caret row math matches the rendered rows.
+const EDITOR_LINE_LEADING: f32 = 4.0;
+
 fn gpu_trace_enabled() -> bool {
     std::env::var("ZAROXI_RENDER_TRACE").as_deref() == Ok("1")
 }
@@ -813,7 +820,7 @@ impl<'a> Renderer<'a> {
                     // If per-span colored content is provided, emit each span as a
                     // separate text command with its own color for syntax highlighting.
                     if let Some(ref spans) = block.content_spans {
-                        let line_h = DEFAULT_FONT_SIZE + 2.0;
+                        let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                         let clip_bottom = content_y + content_h;
                         // Honor content_line_offset symmetrically with the plain
                         // path so a viewport-windowed span list lands at the
@@ -901,7 +908,7 @@ impl<'a> Renderer<'a> {
                         // absolute y-position, matching scroll and cursor
                         // positioning computed from absolute line numbers.
                         let clip_bottom = content_y + content_h;
-                        let line_h = DEFAULT_FONT_SIZE + 2.0;
+                        let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                         let mut cursor_y =
                             text_y + block.content_line_offset.unwrap_or(0) as f32 * line_h;
                         let visible_line_start = block.content_line_offset.unwrap_or(0);
@@ -969,7 +976,7 @@ impl<'a> Renderer<'a> {
                 let char_w = self.text_renderer.monospace_advance_x().unwrap_or(8.0);
 
                 if content_w > 0.0 && content_h > 0.0 {
-                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                     let text_y = content_y - block.content_offset_y;
                     let line_y = text_y + line as f32 * line_h;
 
@@ -1022,7 +1029,7 @@ impl<'a> Renderer<'a> {
                 // Selection highlight — uses the same char_w computed from the
                 // font system above (cursor vertical bar block).
                 if let Some((sl, sc, el, ec)) = block.selection_range {
-                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                     let text_y = content_y - block.content_offset_y;
                     let sel_color: [f32; 4] = layout.colors.editor_selection;
                     for line in sl..=el {
@@ -2236,7 +2243,7 @@ fn render_frame_inner(
             let text_y = content_y - block.content_offset_y;
             if clip_w > 0.0 && content_h > 0.0 {
                 if let Some(ref spans) = block.content_spans {
-                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                     let clip_bottom = content_y + content_h;
                     // Honor content_line_offset symmetrically with the plain
                     // path so a viewport-windowed span list (whose first run is
@@ -2318,7 +2325,7 @@ fn render_frame_inner(
                     }
                 } else {
                     let clip_bottom = content_y + content_h;
-                    let line_h = DEFAULT_FONT_SIZE + 2.0;
+                    let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                     // Viewport-only rendering: when content_line_offset is set,
                     // `content` carries only the visible window of lines (plus
                     // overscan). The offset adjusts cursor_y so the first line
@@ -2384,7 +2391,7 @@ fn render_frame_inner(
             // in physical pixels for cursor and selection positioning.
             let char_w = text_renderer.monospace_advance_x().unwrap_or(8.0);
             if content_w > 0.0 && content_h > 0.0 {
-                let line_h = DEFAULT_FONT_SIZE + 2.0;
+                let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                 let text_y = content_y - block.content_offset_y;
                 let line_y = text_y + line as f32 * line_h;
                 if block.highlight_active_line
@@ -2429,7 +2436,7 @@ fn render_frame_inner(
                 }
             }
             if let Some((sl, sc, el, ec)) = block.selection_range {
-                let line_h = DEFAULT_FONT_SIZE + 2.0;
+                let line_h = DEFAULT_FONT_SIZE + EDITOR_LINE_LEADING;
                 let text_y = content_y - block.content_offset_y;
                 let sel_color: [f32; 4] = layout.colors.editor_selection;
                 for line in sl..=el {

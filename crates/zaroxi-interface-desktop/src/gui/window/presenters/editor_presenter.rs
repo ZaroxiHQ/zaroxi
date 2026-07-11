@@ -9,6 +9,130 @@ use super::super::syntax_color;
 
 const OVERSCAN_LINES: usize = 20;
 
+/// Tab width used for soft-wrap column math. Matches
+/// `EditorBufferState::TAB_WIDTH` and the renderer/gutter so wrap columns line
+/// up 1:1 with the caret's visual column (`caret_vis_col`).
+const WRAP_TAB_WIDTH: usize = 4;
+
+#[inline]
+fn wrap_char_col_width(ch: char, col: usize) -> usize {
+    if ch == '\t' { WRAP_TAB_WIDTH - (col % WRAP_TAB_WIDTH) } else { 1 }
+}
+
+/// A break may occur AFTER a whitespace char — the strongly preferred, prose
+/// boundary. The trailing space stays on the previous row (monospace-friendly).
+#[inline]
+fn is_ws_break(ch: char) -> bool {
+    ch == ' ' || ch == '\t'
+}
+
+/// … or after a "soft" structural separator common in code (paths, URLs,
+/// snake_case, kebab-case). Breaking AFTER keeps the separator with the left
+/// token, e.g. `a/b/c` → `a/` · `b/` · `c`. Deliberately excludes `.`/`,`/`;`
+/// so decimals and abbreviations are not split at ugly spots.
+#[inline]
+fn is_soft_break(ch: char) -> bool {
+    matches!(ch, '/' | '\\' | '-' | '_')
+}
+
+/// Compute soft-wrap row starts for one logical line.
+///
+/// Returns one `(char_start, col_start)` per visual row (row 0 is always
+/// `(0, 0)`), where `char_start` is the char index in `line` where the row
+/// begins and `col_start` is the tab-expanded, line-relative column where it
+/// begins. `col_start` shares the exact coordinate space as
+/// `EditorBufferState::caret_vis_col`, so caret projection can reuse this plan.
+///
+/// Policy (readable, not terminal-brutal):
+///   1. break at the last whitespace that fits (whole word moves down),
+///   2. else the last soft separator that fits,
+///   3. else — only for a single token wider than the row — a character break
+///      so text can never overflow the wrap width.
+pub(crate) fn plan_line_wrap(line: &str, chars_per_row: usize) -> Vec<(usize, usize)> {
+    let mut rows = vec![(0usize, 0usize)];
+    if chars_per_row == 0 || line.is_empty() {
+        return rows;
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let mut line_col = 0usize; // cumulative tab-expanded column within the line
+    let mut row_start_col = 0usize; // line_col at the current row's start
+    // Best break opportunities seen so far in the CURRENT row. Each stores the
+    // char index at which the NEXT row would begin and the col at that point.
+    let mut last_ws: Option<(usize, usize)> = None;
+    let mut last_soft: Option<(usize, usize)> = None;
+
+    let mut i = 0usize;
+    while i < chars.len() {
+        let ch = chars[i];
+        let w = wrap_char_col_width(ch, line_col);
+        let row_start_char = rows.last().map(|&(c, _)| c).unwrap_or(0);
+        // Placing this char would overflow a non-empty row → break.
+        if line_col + w - row_start_col > chars_per_row && line_col > row_start_col {
+            let (brk_char, brk_col) = last_ws
+                .filter(|&(c, _)| c > row_start_char)
+                .or_else(|| last_soft.filter(|&(c, _)| c > row_start_char))
+                .unwrap_or((i, line_col)); // char-level fallback
+            rows.push((brk_char, brk_col));
+            row_start_col = brk_col;
+            last_ws = None;
+            last_soft = None;
+            // Re-scan the carried segment [brk_char, i) for break opportunities
+            // that belong to the new row (e.g. a slash inside a carried token).
+            let mut c = brk_char;
+            let mut probe = brk_col;
+            while c < i {
+                probe += wrap_char_col_width(chars[c], probe);
+                if is_ws_break(chars[c]) {
+                    last_ws = Some((c + 1, probe));
+                    last_soft = None;
+                } else if is_soft_break(chars[c]) {
+                    last_soft = Some((c + 1, probe));
+                }
+                c += 1;
+            }
+            // Re-test the current char against the freshly started row.
+            continue;
+        }
+        line_col += w;
+        if is_ws_break(ch) {
+            last_ws = Some((i + 1, line_col));
+            last_soft = None;
+        } else if is_soft_break(ch) {
+            last_soft = Some((i + 1, line_col));
+        }
+        i += 1;
+    }
+    rows
+}
+
+/// Project a caret's visual column onto its wrapped sub-row.
+///
+/// Given the caret's logical line text and tab-expanded column, returns
+/// `(sub_row, col_within_row)` under the same policy as [`plan_line_wrap`], so
+/// the caret lands on the exact row/column the renderer drew — even when rows
+/// have unequal widths (word wrap) rather than a fixed `chars_per_row` stride.
+pub(crate) fn wrapped_caret_subrow_col(
+    line: &str,
+    chars_per_row: usize,
+    caret_vis_col: usize,
+) -> (usize, usize) {
+    if chars_per_row == 0 {
+        return (0, caret_vis_col);
+    }
+    let rows = plan_line_wrap(line, chars_per_row);
+    // Last row whose start column is <= the caret column.
+    let mut sub_row = 0usize;
+    for (idx, &(_, col_start)) in rows.iter().enumerate() {
+        if col_start <= caret_vis_col {
+            sub_row = idx;
+        } else {
+            break;
+        }
+    }
+    let (_, col_start) = rows[sub_row];
+    (sub_row, caret_vis_col.saturating_sub(col_start))
+}
+
 fn apply_wrap(
     raw_text: &str,
     raw_spans: Option<&syntax_color::ColoredSpans>,
@@ -81,22 +205,20 @@ fn wrap_text(
             *total_visual += 1;
             continue;
         }
-        let mut col: usize = 0;
-        for ch in logical_line.chars() {
-            let ch_w = if ch == '\t' { 4 - (col % 4) } else { 1 };
-            if col + ch_w > chars_per_row && col > 0 {
+        // Word-boundary row plan (shared with the caret projection so rows line
+        // up exactly). Insert a soft '\n' at each row start after the first.
+        let rows = plan_line_wrap(logical_line, chars_per_row);
+        let mut next_row = 1usize;
+        for (ci, ch) in logical_line.chars().enumerate() {
+            if next_row < rows.len() && ci == rows[next_row].0 {
                 out.push('\n');
                 visual_to_logical.push(logical_idx);
                 *total_visual += 1;
-                col = 0;
+                next_row += 1;
             }
             out.push(ch);
-            if ch == '\t' {
-                col += 4 - (col % 4);
-            } else {
-                col += 1;
-            }
         }
+        // The final visual row of this logical line.
         visual_to_logical.push(logical_idx);
         *total_visual += 1;
     }
@@ -122,34 +244,62 @@ fn wrap_spans(
         *total_visual += logical_count;
         return spans.to_vec();
     }
-    let mut out: Vec<(String, [f32; 4])> = Vec::new();
-    let mut col: usize = 0;
-    let mut logical_idx = first_logical_line;
-    for (text, color) in spans {
-        if text == "\n" {
+    // Emit one logical line's colored chars, inserting a soft '\n' at each row
+    // start using the SAME plan as `wrap_text`, so the styled stream and the
+    // plain fallback break at byte-identical positions.
+    fn flush_line(
+        line_chars: &[(char, [f32; 4])],
+        chars_per_row: usize,
+        logical_idx: usize,
+        out: &mut Vec<(String, [f32; 4])>,
+        visual_to_logical: &mut Vec<usize>,
+        total_visual: &mut usize,
+    ) {
+        if line_chars.is_empty() {
             visual_to_logical.push(logical_idx);
             *total_visual += 1;
-            out.push(("\n".to_string(), *color));
-            logical_idx += 1;
-            col = 0;
-            continue;
+            return;
         }
-        for ch in text.chars() {
-            let ch_w = if ch == '\t' { 4 - (col % 4) } else { 1 };
-            if col + ch_w > chars_per_row && col > 0 {
+        let line: String = line_chars.iter().map(|(c, _)| *c).collect();
+        let rows = plan_line_wrap(&line, chars_per_row);
+        let mut next_row = 1usize;
+        for (ci, (ch, color)) in line_chars.iter().enumerate() {
+            if next_row < rows.len() && ci == rows[next_row].0 {
                 out.push(("\n".to_string(), *color));
                 visual_to_logical.push(logical_idx);
                 *total_visual += 1;
-                col = 0;
+                next_row += 1;
             }
             out.push((ch.to_string(), *color));
-            if ch == '\t' {
-                col += 4 - (col % 4);
-            } else {
-                col += 1;
-            }
+        }
+        visual_to_logical.push(logical_idx);
+        *total_visual += 1;
+    }
+
+    let mut out: Vec<(String, [f32; 4])> = Vec::new();
+    let mut logical_idx = first_logical_line;
+    let mut line_chars: Vec<(char, [f32; 4])> = Vec::new();
+    for (text, color) in spans {
+        if text == "\n" {
+            flush_line(
+                &line_chars,
+                chars_per_row,
+                logical_idx,
+                &mut out,
+                visual_to_logical,
+                total_visual,
+            );
+            out.push(("\n".to_string(), *color));
+            line_chars.clear();
+            logical_idx += 1;
+            continue;
+        }
+        for ch in text.chars() {
+            line_chars.push((ch, *color));
         }
     }
+    // Flush the trailing logical line (no '\n' span follows it).
+    flush_line(&line_chars, chars_per_row, logical_idx, &mut out, visual_to_logical, total_visual);
     if out.is_empty() {
         visual_to_logical.push(first_logical_line);
         *total_visual += 1;
@@ -596,5 +746,97 @@ fn shape_editor_content_impl(
         total_visual_lines,
         chars_per_row: wrap_chars_per_row,
         wrap_visual_offset,
+    }
+}
+
+#[cfg(test)]
+mod wrap_tests {
+    use super::*;
+
+    /// Split `wrap_text` output into visual rows for the single logical line.
+    fn wrapped_rows(line: &str, cpr: usize) -> Vec<String> {
+        let mut v2l = Vec::new();
+        let mut tv = 0usize;
+        let out = wrap_text(line, cpr, &mut v2l, 0, &mut tv);
+        assert_eq!(v2l.len(), tv);
+        out.split('\n').map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn wraps_at_space_before_breaking_a_word() {
+        let rows = wrapped_rows("hello world foo", 8);
+        assert_eq!(rows, vec!["hello ", "world ", "foo"]);
+        for r in &rows {
+            assert!(r.chars().count() <= 8, "row {r:?} exceeds width");
+        }
+    }
+
+    #[test]
+    fn falls_back_to_char_break_only_for_oversized_token() {
+        let rows = wrapped_rows("supercalifragilistic", 8);
+        assert_eq!(rows, vec!["supercal", "ifragili", "stic"]);
+        for r in &rows {
+            assert!(r.chars().count() <= 8);
+        }
+    }
+
+    #[test]
+    fn breaks_after_soft_separators_in_paths() {
+        let rows = wrapped_rows("aaa/bbb/ccc", 5);
+        assert_eq!(rows, vec!["aaa/", "bbb/", "ccc"]);
+    }
+
+    #[test]
+    fn snake_and_kebab_break_at_underscore_and_hyphen() {
+        assert_eq!(wrapped_rows("alpha_beta_gamma", 7), vec!["alpha_", "beta_", "gamma"]);
+        assert_eq!(wrapped_rows("one-two-three", 5), vec!["one-", "two-", "three"]);
+    }
+
+    #[test]
+    fn short_line_is_not_wrapped() {
+        assert_eq!(wrapped_rows("fn main() {}", 80), vec!["fn main() {}"]);
+    }
+
+    #[test]
+    fn continuation_rows_stay_within_wrap_width() {
+        let src = "The quick brown fox jumps over the lazy dog near the riverbank.";
+        let cpr = 20;
+        let rows = wrapped_rows(src, cpr);
+        for r in &rows {
+            assert!(r.chars().count() <= cpr, "row {r:?} exceeds {cpr}");
+        }
+        assert_eq!(rows.join(""), src);
+    }
+
+    #[test]
+    fn caret_subrow_tracks_word_wrapped_rows() {
+        let line = "hello world foo";
+        assert_eq!(wrapped_caret_subrow_col(line, 8, 0), (0, 0));
+        assert_eq!(wrapped_caret_subrow_col(line, 8, 6), (1, 0));
+        assert_eq!(wrapped_caret_subrow_col(line, 8, 8), (1, 2));
+        assert_eq!(wrapped_caret_subrow_col(line, 8, 12), (2, 0));
+        assert_eq!(wrapped_caret_subrow_col(line, 8, 15), (2, 3));
+    }
+
+    #[test]
+    fn caret_subrow_zero_when_not_wrapping() {
+        assert_eq!(wrapped_caret_subrow_col("anything", 0, 5), (0, 5));
+    }
+
+    #[test]
+    fn plain_and_styled_paths_break_identically() {
+        let line = "let path = crate/module/name_value;";
+        let cpr = 12;
+        let mut v2l_plain = Vec::new();
+        let mut tv_plain = 0usize;
+        let _ = wrap_text(line, cpr, &mut v2l_plain, 0, &mut tv_plain);
+
+        let spans = vec![(line.to_string(), [1.0, 1.0, 1.0, 1.0])];
+        let mut v2l_styled = Vec::new();
+        let mut tv_styled = 0usize;
+        let _ = wrap_spans(&spans, cpr, &mut v2l_styled, 0, &mut tv_styled);
+
+        assert_eq!(v2l_plain, v2l_styled);
+        assert_eq!(tv_plain, tv_styled);
     }
 }

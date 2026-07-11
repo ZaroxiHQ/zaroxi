@@ -422,6 +422,10 @@ impl GuiApp {
         // and the wrap mapping use. The caret is positioned and wrap-projected
         // from this single live value, not the raw char column.
         let cursor_vis_col = self.editor_buffer.caret_vis_col();
+        // The caret's logical line text (raw), captured before the window borrow
+        // so the caret's wrapped sub-row/column can be projected from the SAME
+        // word-boundary plan the presenter wrapped with.
+        let caret_line_text = self.editor_buffer.rope().line(cursor_line).unwrap_or_default();
         let selection_range = self.editor_selection_range();
         // Pre-compute values needed inside the render closure
         // (self is mutably borrowed via maybe_window below).
@@ -1650,14 +1654,23 @@ impl GuiApp {
                         // Caret visual row/col derive from the SINGLE live source
                         // (`editor_buffer`) via the shared, unit-tested projection
                         // — never from the stale `editor_body.cursor_*` view-model.
+                        // The caret's wrapped sub-row and in-row column come from
+                        // the caret line's own word-boundary plan, so both track
+                        // the rendered rows even with unequal-width word wrap.
+                        let (caret_sub_row, caret_col_in_row) =
+                            super::super::presenters::editor_presenter::wrapped_caret_subrow_col(
+                                &caret_line_text,
+                                self.editor_chars_per_row,
+                                cursor_vis_col,
+                            );
                         let vis_cursor_line = super::caret_visual_row(
                             cursor_line,
-                            cursor_vis_col,
+                            caret_sub_row,
                             &self.editor_visual_to_logical,
                             self.editor_chars_per_row,
                         );
                         let vis_cursor_col = if self.editor_chars_per_row > 0 {
-                            cursor_vis_col % self.editor_chars_per_row.max(1)
+                            caret_col_in_row
                         } else {
                             cursor_vis_col
                         };
