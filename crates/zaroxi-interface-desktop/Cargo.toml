@@ -60,7 +60,7 @@ taffy = { workspace = true }
 once_cell = { workspace = true }
 minifb = "0.28.0"
 pollster = "0.3"
-rfd = "0.15"
+rfd = "0.17"
 bytemuck = "1.25.0"
 zaroxi-core-editor-largefile = { path = "../zaroxi-core-editor-largefile" }
 # Pure minimap projection data model (structure-first density + mapping math).
