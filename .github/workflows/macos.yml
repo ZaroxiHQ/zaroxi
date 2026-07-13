@@ -128,7 +128,7 @@ jobs:
             "ZaroxiStudio-${{ steps.version.outputs.version }}-${ARCH_LABEL}.pkg"
 
       - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-release-artifacts-${{ matrix.target }}
           path: |
