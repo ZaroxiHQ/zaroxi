@@ -6,6 +6,7 @@
 //! The resize and drop-leak tests exercise the session plumbing itself and
 //! are safe on both platforms.
 
+#[cfg(unix)]
 use std::time::Duration;
 
 use zaroxi_core_platform_terminal::{TerminalConfig, TerminalSession};
