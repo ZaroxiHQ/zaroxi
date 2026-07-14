@@ -603,6 +603,76 @@ pub fn settings_sections() -> Vec<SettingsSection> {
             }],
         },
         SettingsSection {
+            label: "AI Assistant".to_string(),
+            items: vec![
+                SettingsRow {
+                    label: "Enable Assistant".to_string(),
+                    description: "Show the AI assistant panel".to_string(),
+                    kind: SettingsRowKind::Toggle { on: true },
+                },
+                SettingsRow {
+                    label: "AI Provider".to_string(),
+                    description: "Choose your AI backend provider".to_string(),
+                    kind: SettingsRowKind::Select {
+                        value: "OpenAI".to_string(),
+                        options: vec![
+                            "OpenAI".to_string(),
+                            "Anthropic".to_string(),
+                            "Google AI".to_string(),
+                            "xAI / Grok".to_string(),
+                            "OpenRouter".to_string(),
+                            "Local / Self-Hosted".to_string(),
+                        ],
+                    },
+                },
+                SettingsRow {
+                    label: "Streaming".to_string(),
+                    description: "Stream AI responses as they are generated".to_string(),
+                    kind: SettingsRowKind::Toggle { on: true },
+                },
+                SettingsRow {
+                    label: "Max Context Tokens".to_string(),
+                    description: "Maximum tokens sent as context per request".to_string(),
+                    kind: SettingsRowKind::Label { value: "32000".to_string() },
+                },
+                SettingsRow {
+                    label: "Auto-attach File".to_string(),
+                    description: "Automatically include current file in context".to_string(),
+                    kind: SettingsRowKind::Toggle { on: true },
+                },
+                SettingsRow {
+                    label: "Auto-attach Selection".to_string(),
+                    description: "Automatically include selection in context".to_string(),
+                    kind: SettingsRowKind::Toggle { on: true },
+                },
+            ],
+        },
+        SettingsSection {
+            label: "MCP Servers".to_string(),
+            items: vec![
+                SettingsRow {
+                    label: "Enable MCP".to_string(),
+                    description: "Enable Model Context Protocol servers".to_string(),
+                    kind: SettingsRowKind::Toggle { on: false },
+                },
+                SettingsRow {
+                    label: "Filesystem Server".to_string(),
+                    description: "Let AI read/write workspace files via MCP".to_string(),
+                    kind: SettingsRowKind::Toggle { on: false },
+                },
+                SettingsRow {
+                    label: "Git Server".to_string(),
+                    description: "Let AI inspect git history and diffs".to_string(),
+                    kind: SettingsRowKind::Toggle { on: false },
+                },
+                SettingsRow {
+                    label: "Web Fetch Server".to_string(),
+                    description: "Let AI fetch and parse web content".to_string(),
+                    kind: SettingsRowKind::Toggle { on: false },
+                },
+            ],
+        },
+        SettingsSection {
             label: "Editor".to_string(),
             items: vec![
                 SettingsRow {

@@ -51,6 +51,7 @@ pub(crate) fn make_headless_app() -> GuiApp {
         ai_tracer,
         ai_trace_rx: Some(ai_trace_rx),
         ai_session: zaroxi_application_ai::view_model::AiSessionState::default(),
+        ai_provider_status: None,
         on_widget_activated: None,
         composition: None,
         workspace_view: None,

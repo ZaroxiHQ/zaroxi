@@ -3,7 +3,9 @@
 pub mod mock;
 pub mod panel;
 pub mod ports;
+pub mod provider_registry;
 pub mod service;
+pub mod session_manager;
 pub mod tasks;
 pub mod trace;
 
@@ -13,7 +15,9 @@ pub mod trace;
 /// is not linked into a particular composition.
 pub mod prelude {
     pub use super::ports::*;
+    pub use super::provider_registry::*;
     pub use super::service::*;
+    pub use super::session_manager::*;
     pub use super::tasks::*;
 }
 

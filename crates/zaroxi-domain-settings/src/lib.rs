@@ -74,11 +74,57 @@ pub struct TelemetryPreference {
 
 /// The aggregate settings model — the single source of truth for all user-
 /// facing preferences that affect app behaviour.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub theme: ThemePreference,
     pub font: FontPreference,
     pub telemetry: TelemetryPreference,
+    /// AI provider and model configuration.
+    pub ai: AiSettings,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: ThemePreference::default(),
+            font: FontPreference::default(),
+            telemetry: TelemetryPreference::default(),
+            ai: AiSettings::default(),
+        }
+    }
+}
+
+/// AI-related user settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AiSettings {
+    /// Whether the AI assistant pane is enabled.
+    pub assistant_enabled: bool,
+    /// Currently active AI provider.
+    pub active_provider: String,
+    /// Maximum context tokens to attach per request.
+    pub max_context_tokens: usize,
+    /// Whether to automatically attach current file context.
+    pub auto_attach_file: bool,
+    /// Whether to automatically attach selection context.
+    pub auto_attach_selection: bool,
+    /// Whether to stream responses.
+    pub streaming_enabled: bool,
+    /// Whether MCP servers are enabled.
+    pub mcp_enabled: bool,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            assistant_enabled: true,
+            active_provider: "OpenAI".into(),
+            max_context_tokens: 32_000,
+            auto_attach_file: true,
+            auto_attach_selection: true,
+            streaming_enabled: true,
+            mcp_enabled: false,
+        }
+    }
 }
 
 impl Settings {
@@ -131,6 +177,13 @@ pub enum SettingsAction {
     SetTheme(ThemePreference),
     SetFont(FontPreference),
     SetTelemetry(bool),
+    SetAiAssistantEnabled(bool),
+    SetAiActiveProvider(String),
+    SetAiMaxContextTokens(usize),
+    SetAiStreamingEnabled(bool),
+    SetAiAutoAttachFile(bool),
+    SetAiAutoAttachSelection(bool),
+    SetMcpEnabled(bool),
 }
 
 /// Convenience: convert a [`ThemePreference`] into the interface-layer

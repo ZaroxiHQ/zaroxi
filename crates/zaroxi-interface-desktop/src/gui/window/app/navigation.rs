@@ -939,6 +939,27 @@ impl GuiApp {
             zaroxi_domain_settings::SettingsAction::SetTelemetry(enabled) => {
                 self.settings.telemetry.enabled = *enabled;
             }
+            zaroxi_domain_settings::SettingsAction::SetAiAssistantEnabled(enabled) => {
+                self.settings.ai.assistant_enabled = *enabled;
+            }
+            zaroxi_domain_settings::SettingsAction::SetAiActiveProvider(provider) => {
+                self.settings.ai.active_provider = provider.clone();
+            }
+            zaroxi_domain_settings::SettingsAction::SetAiMaxContextTokens(tokens) => {
+                self.settings.ai.max_context_tokens = *tokens;
+            }
+            zaroxi_domain_settings::SettingsAction::SetAiStreamingEnabled(enabled) => {
+                self.settings.ai.streaming_enabled = *enabled;
+            }
+            zaroxi_domain_settings::SettingsAction::SetAiAutoAttachFile(enabled) => {
+                self.settings.ai.auto_attach_file = *enabled;
+            }
+            zaroxi_domain_settings::SettingsAction::SetAiAutoAttachSelection(enabled) => {
+                self.settings.ai.auto_attach_selection = *enabled;
+            }
+            zaroxi_domain_settings::SettingsAction::SetMcpEnabled(enabled) => {
+                self.settings.ai.mcp_enabled = *enabled;
+            }
         }
         self.cached_settings_popup = None;
         self.cockpit_status_fingerprint = 0;

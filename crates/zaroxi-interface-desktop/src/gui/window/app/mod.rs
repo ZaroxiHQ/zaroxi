@@ -190,6 +190,8 @@ pub struct GuiApp {
     /// folded from the drained AI trace events.  The truthful operational
     /// surface for the assistant panel and cockpit status — no invented data.
     pub ai_session: zaroxi_application_ai::view_model::AiSessionState,
+    /// AI provider connection status for the assistant panel header badge.
+    pub ai_provider_status: Option<crate::gui::window::ai_pane::ProviderUiStatus>,
     pub on_widget_activated: Option<WidgetActivationHandler>,
     pub composition: Option<DesktopComposition>,
     pub workspace_view: Option<Arc<dyn WorkspaceView>>,

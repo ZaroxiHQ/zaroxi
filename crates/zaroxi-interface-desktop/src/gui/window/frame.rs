@@ -365,7 +365,9 @@ pub fn compose_blocks(
                 ctx.terminal_tabs.as_deref(),
             )),
             PanelRole::BottomDock => blocks.push(BottomDockPanel::build_block(r, tokens)),
-            PanelRole::AuxiliaryPanelHeader => blocks.push(AiPanel::build_header_block(r, tokens)),
+            PanelRole::AuxiliaryPanelHeader => {
+                blocks.extend(AiPanel::build_header_block(r, tokens, &ctx.ai_data))
+            }
             PanelRole::AuxiliaryPanelContent => {
                 blocks.extend(AiPanel::build_content_block(r, tokens, &ctx.ai_data));
             }

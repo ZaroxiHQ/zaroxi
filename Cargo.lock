@@ -5057,6 +5057,9 @@ version = "0.1.0"
 [[package]]
 name = "zaroxi-infrastructure-process"
 version = "0.1.0"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "zaroxi-infrastructure-rpc"
