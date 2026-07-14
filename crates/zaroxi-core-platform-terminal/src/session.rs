@@ -54,12 +54,15 @@ pub struct TerminalExit {
 
 /// A running terminal session.
 pub struct TerminalSession {
+    // Fields ordered for drop-safety: `master` must be dropped before the
+    // reader thread exits so the cloned reader handle observes EOF/close
+    // instead of blocking `read()` indefinitely (critical on Windows/conpty
+    // where killing the child may not produce EOF on the PTY master).
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     reader_rx: Receiver<ReaderMsg>,
-    reader_handle: Option<JoinHandle<()>>,
     parser: vt100::Parser,
     rows: u16,
     cols: u16,
@@ -67,6 +70,25 @@ pub struct TerminalSession {
     program: String,
     alive: bool,
     exit: Option<TerminalExit>,
+    // Keep JoinHandle last — Rust drops fields in declaration order, so
+    // `master` is dropped (closing the PTY) before this handle detaches
+    // the reader thread. The reader observes the close and exits cleanly.
+    #[allow(dead_code)]
+    reader_handle: Option<JoinHandle<()>>,
+}
+
+impl Drop for TerminalSession {
+    fn drop(&mut self) {
+        let _ = self.killer.kill();
+        // Do NOT join the reader thread here.  On platforms where kill()
+        // does not produce an immediate EOF on the PTY master (Windows
+        // conpty, some headless CI runners), the reader remains blocked
+        // in `read()` and `join()` would hang the calling thread forever.
+        // Rust drops struct fields after Drop::drop() returns — the
+        // `master` field is dropped before `reader_handle`, which closes
+        // the PTY and causes the cloned reader to observe EOF and exit.
+        // Threads are reclaimed by the OS on process exit.
+    }
 }
 
 impl TerminalSession {
@@ -169,6 +191,17 @@ impl TerminalSession {
     pub fn send_input(&mut self, bytes: &[u8]) -> Result<(), TerminalError> {
         if bytes.is_empty() {
             return Ok(());
+        }
+        // Run one pump so we detect exit before writing.  Writing to a PTY
+        // whose slave has already disappeared can block `write_all` / `flush`
+        // forever (especially on Windows conpty), wedging the caller.
+        self.pump();
+        if !self.alive {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "child process has exited",
+            )
+            .into());
         }
         self.scroll_to_bottom();
         self.writer.write_all(bytes)?;
@@ -285,18 +318,6 @@ impl TerminalSession {
     pub fn shutdown(&mut self) {
         let _ = self.killer.kill();
         self.alive = false;
-    }
-}
-
-impl Drop for TerminalSession {
-    fn drop(&mut self) {
-        // Never leak the child process. Kill it and let the reader thread
-        // observe EOF and exit on its own; the channel receiver dropping also
-        // unblocks a `send` on the reader side.
-        let _ = self.killer.kill();
-        if let Some(handle) = self.reader_handle.take() {
-            let _ = handle.join();
-        }
     }
 }
 
