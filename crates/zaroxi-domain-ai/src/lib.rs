@@ -8,6 +8,9 @@ pub mod context_ide;
 pub mod conversation;
 pub mod diff;
 pub mod mcp;
+pub mod mcp_jsonrpc;
+pub mod mcp_stdio;
+pub mod mcp_transport;
 pub mod packing;
 pub mod panel;
 pub mod prompt;
@@ -23,6 +26,8 @@ pub mod prelude {
     pub use super::conversation::*;
     pub use super::diff::*;
     pub use super::mcp::*;
+    pub use super::mcp_jsonrpc::*;
+    pub use super::mcp_transport::*;
     pub use super::packing::*;
     pub use super::panel::*;
     pub use super::prompt::*;

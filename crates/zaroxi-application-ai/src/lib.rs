@@ -3,6 +3,8 @@
 pub mod action_service;
 pub mod context_collector;
 pub mod diff_applier;
+pub mod mcp_client;
+pub mod mcp_service;
 pub mod mock;
 pub mod panel;
 pub mod ports;
@@ -17,6 +19,7 @@ pub mod prelude {
     pub use super::action_service::*;
     pub use super::context_collector::*;
     pub use super::diff_applier::*;
+    pub use super::mcp_service::*;
     pub use super::ports::*;
     pub use super::provider_registry::*;
     pub use super::service::*;
