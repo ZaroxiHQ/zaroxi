@@ -89,7 +89,7 @@ mod tests {
         use crate::highlight::map_capture_name;
 
         assert_eq!(map_capture_name("emphasis"), Highlight::Comment);
-        assert_eq!(map_capture_name("strong_emphasis"), Highlight::Keyword);
+        assert_eq!(map_capture_name("strong_emphasis"), Highlight::KeywordControl);
         assert_eq!(map_capture_name("code_span"), Highlight::Constant);
         assert_eq!(map_capture_name("inline_code"), Highlight::Constant);
         assert_eq!(map_capture_name("link_text"), Highlight::Variable);
@@ -107,8 +107,8 @@ mod tests {
         assert_eq!(map_capture_name("strikethrough"), Highlight::Comment);
         assert_eq!(map_capture_name("uri_autolink"), Highlight::String);
         assert_eq!(map_capture_name("email_autolink"), Highlight::String);
-        assert_eq!(map_capture_name("backslash_escape"), Highlight::String);
-        assert_eq!(map_capture_name("escape"), Highlight::String);
+        assert_eq!(map_capture_name("backslash_escape"), Highlight::Escape);
+        assert_eq!(map_capture_name("escape"), Highlight::Escape);
         assert_eq!(map_capture_name("latex"), Highlight::Constant);
 
         assert_eq!(map_capture_name("heading"), Highlight::Type);

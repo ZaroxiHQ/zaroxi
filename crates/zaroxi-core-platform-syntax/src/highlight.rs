@@ -42,40 +42,72 @@ pub struct HighlightSpan {
     pub highlight: Highlight,
 }
 
-/// Highlight types (maps to Tree-sitter capture names).
+/// Highlight types — maps Tree-sitter capture names to a rich token palette.
 ///
-/// These categories are intentionally small and map from Tree-sitter capture
-/// names to a limited set of highlighting roles used by the presenter.
+/// Expanded from 14 to 29 variants to support VS Code Dark+-level token
+/// differentiation. Every capture name produced by `highlights.scm` resolves
+/// to a distinct variant; the presenter maps each variant to a dedicated field
+/// on `SyntaxPalette` so no two semantically distinct token types share a color
+/// by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Highlight {
-    /// Comment text (line/block/documentation).
+    /// Comment text (line / block).
     Comment,
-    /// String and literal text.
+    /// Documentation comment (`///`, `//!`).
+    CommentDoc,
+    /// String literals and raw strings.
     String,
-    /// Language keywords and control tokens.
+    /// Escape sequences inside strings (`\n`, `\t`, `\\`).
+    Escape,
+    /// General language keywords (`fn`, `struct`, `impl`, `match`, …).
     Keyword,
-    /// Function and call sites.
+    /// Control-flow keywords (`if`, `else`, `for`, `while`, `loop`, `return`).
+    KeywordControl,
+    /// Import / module keywords (`use`, `mod`, `extern`, `crate`).
+    KeywordImport,
+    /// Function / method definitions.
     Function,
-    /// Variables and identifiers.
+    /// Function / method call sites.
+    FunctionCall,
+    /// Macro invocations (`println!`, `vec!`, `format!`).
+    FunctionMacro,
+    /// Local variables and general identifiers.
     Variable,
-    /// Type names and annotations.
+    /// Function / closure parameter names.
+    Parameter,
+    /// `self` and `Self` keywords.
+    SelfKw,
+    /// User-defined type names (structs, enums, traits, type aliases).
     Type,
-    /// Constants and literal constants.
+    /// Built-in primitive types (`i32`, `str`, `bool`, `char`).
+    TypeBuiltin,
+    /// Named constants (including `const` items and SCREAMING_CASE values).
     Constant,
-    /// Attributes, annotations, or decorators.
+    /// Boolean literals (`true`, `false`).
+    Boolean,
+    /// Attributes / annotations / decorators (`#[derive(…)]`, `#![…]`).
     Attribute,
-    /// Operators (arithmetic, logical, assignment, …).
+    /// Operators (`=`, `+`, `-`, `*`, `->`, `=>`, `::`, comparison, bitwise).
     Operator,
-    /// Punctuation (brackets, delimiters): kept distinct from operators so it
-    /// can render in a muted, recessive color instead of the operator color.
+    /// Punctuation — brackets / delimiters / separators (`{`, `}`, `(`, `)`, `[`, `]`, `,`, `;`, `:`).
     Punctuation,
-    /// Numeric literals.
+    /// Numeric literals (integers, floats, hex, octal, binary).
     Number,
-    /// Property/field-like accessors.
+    /// Property / field access (`struct.field`).
     Property,
-    /// Namespace/module identifiers and imports.
+    /// Namespace / module path segments and imports.
     Namespace,
-    /// Plain text / no special highlighting.
+    /// Enum variant constructors (`Some`, `None`, `Ok`, `Err`, custom variants).
+    Constructor,
+    /// Lifetime annotations (`'a`, `'static`).
+    Lifetime,
+    /// Loop labels (`'label:`).
+    Label,
+    /// Generic type parameters (`<T>`, `<K, V>`).
+    Generic,
+    /// Parse errors / invalid syntax.
+    Error,
+    /// Plain text — no special highlighting.
     Plain,
 }
 
@@ -285,6 +317,7 @@ impl HighlightEngine {
         let mut cursor = QueryCursor::new();
         let root_node = tree.root_node();
         let mut spans = Vec::new();
+        let debug = syntax_debug_enabled();
 
         // Iterate over query matches using QueryCursor::matches which returns a streaming
         // iterator. Use the StreamingIterator trait's `next` helper to walk matches.
@@ -298,6 +331,15 @@ impl HighlightEngine {
                 let end = node.end_byte();
                 let capture_name = &query.capture_names()[capture.index as usize];
                 let highlight = map_capture_name(capture_name);
+
+                if debug {
+                    let node_kind = node.kind();
+                    let snippet: String = source[start..end].chars().take(40).collect();
+                    eprintln!(
+                        "HIGHLIGHT: node_kind={node_kind} capture={capture_name} \
+                         highlight={highlight:?} byte_range={start}..{end} text={snippet:?}"
+                    );
+                }
 
                 spans.push(HighlightSpan { start, end, highlight });
             }
@@ -354,16 +396,17 @@ impl Default for HighlightEngine {
 
 /// Map a Tree-sitter capture name to a Highlight classification.
 ///
-/// This provides a stable mapping from varied capture names used by different
-/// grammars into the small set of Highlight categories used by the presenter.
+/// Provides a stable mapping from every capture name produced by any supported
+/// grammar into a dedicated `Highlight` variant.  Each semantically distinct
+/// token role gets its own variant so the presenter can assign a unique color
+/// with zero collision risk.
 pub fn map_capture_name(name: &str) -> Highlight {
     match name {
-        // Comments
-        "comment" | "comment.line" | "comment.block" | "comment.documentation" => {
-            Highlight::Comment
-        }
+        // ── Comments ──────────────────────────────────────────────────
+        "comment" | "comment.line" | "comment.block" => Highlight::Comment,
+        "comment.documentation" => Highlight::CommentDoc,
 
-        // Strings
+        // ── Strings ───────────────────────────────────────────────────
         "string"
         | "string.quoted"
         | "string.quoted.single"
@@ -378,34 +421,22 @@ pub fn map_capture_name(name: &str) -> Highlight {
         | "string.special.regex"
         | "string.special.format"
         | "string.interpolation"
-        | "string.template" => Highlight::String,
+        | "string.template"
+        | "character" => Highlight::String,
 
-        // Escape sequences
-        "escape" | "string.escape" | "character.escape" | "escape_sequence" => Highlight::String,
+        // ── Escape sequences ──────────────────────────────────────────
+        "escape" | "string.escape" | "character.escape" | "escape_sequence" => Highlight::Escape,
 
-        // Keywords
-        "keyword"
-        | "keyword.control"
+        // ── Keywords (general) ────────────────────────────────────────
+        "keyword" => Highlight::Keyword,
+
+        // ── Keywords → control flow ───────────────────────────────────
+        "keyword.control"
         | "keyword.control.conditional"
         | "keyword.control.repeat"
-        | "keyword.control.import"
         | "keyword.control.exception"
         | "keyword.control.flow"
-        | "keyword.operator"
-        | "keyword.directive"
-        | "keyword.directive.define"
-        | "keyword.directive.include"
-        | "keyword.storage"
-        | "keyword.storage.modifier"
-        | "keyword.storage.type"
-        | "keyword.function"
-        | "keyword.other"
-        | "keyword.other.unit"
-        | "keyword.other.special-method"
-        | "keyword.other.import"
         | "keyword.control.as"
-        | "keyword.control.use"
-        | "keyword.control.mod"
         | "keyword.control.where"
         | "keyword.control.let"
         | "keyword.control.match"
@@ -440,35 +471,62 @@ pub fn map_capture_name(name: &str) -> Highlight {
         | "keyword.control.fn"
         | "keyword.control.extern"
         | "keyword.control.macro"
-        | "keyword.control.union" => Highlight::Keyword,
+        | "keyword.control.union" => Highlight::KeywordControl,
 
-        // Functions and methods
-        "function" | "function.call" | "function.method" | "function.builtin" | "method"
-        | "method.call" | "constructor" | "function.macro" | "macro" => Highlight::Function,
+        // ── Keywords → imports / modules ──────────────────────────────
+        "keyword.control.import"
+        | "keyword.other.import"
+        | "keyword.control.use"
+        | "keyword.control.mod"
+        | "keyword.storage.modifier" => Highlight::KeywordImport,
 
-        // Variables
-        "variable"
-        | "variable.parameter"
-        | "variable.other"
-        | "variable.other.member"
-        | "label"
-        | "definition" => Highlight::Variable,
+        // ── Other keyword-ish ─────────────────────────────────────────
+        "keyword.operator"
+        | "keyword.directive"
+        | "keyword.directive.define"
+        | "keyword.directive.include"
+        | "keyword.storage"
+        | "keyword.storage.type"
+        | "keyword.function"
+        | "keyword.other"
+        | "keyword.other.unit"
+        | "keyword.other.special-method" => Highlight::Keyword,
 
-        // Built-in variables
-        "variable.builtin" | "variable.language" | "variable.special" => Highlight::Type,
+        // ── Functions ─────────────────────────────────────────────────
+        "function" | "method" => Highlight::Function,
+        "function.call"
+        | "function.method"
+        | "function.builtin"
+        | "method.call"
+        | "function.method.call" => Highlight::FunctionCall,
+        "function.macro" | "macro" => Highlight::FunctionMacro,
+        "constructor" => Highlight::Constructor,
 
-        // Types
-        "type" | "type.builtin" | "type.parameter" | "type.qualifier" | "lifetime"
-        | "storageclass" => Highlight::Type,
+        // ── Variables ─────────────────────────────────────────────────
+        "variable" | "variable.other" | "definition" | "identifier" => Highlight::Variable,
+        "variable.parameter" | "parameter" => Highlight::Parameter,
+        "variable.builtin" => Highlight::SelfKw,
+        "variable.language" | "variable.special" => Highlight::Variable,
 
-        // Constants
-        "constant" | "constant.builtin" | "boolean" | "constant.language" | "constant.numeric"
-        | "constant.character" | "constant.other" => Highlight::Constant,
+        // ── Types ─────────────────────────────────────────────────────
+        "type" | "type.definition" | "type.qualifier" | "storageclass" => Highlight::Type,
+        "type.builtin" => Highlight::TypeBuiltin,
+        "type.parameter" => Highlight::Generic,
 
-        // Attributes
+        // ── Lifetimes / labels ────────────────────────────────────────
+        "lifetime" => Highlight::Lifetime,
+        "label" => Highlight::Label,
+
+        // ── Constants ─────────────────────────────────────────────────
+        "constant" | "constant.macro" | "constant.language" => Highlight::Constant,
+        "constant.builtin" => Highlight::Constant,
+        "constant.builtin.boolean" | "boolean" => Highlight::Boolean,
+        "constant.numeric" | "constant.character" | "constant.other" => Highlight::Constant,
+
+        // ── Attributes ────────────────────────────────────────────────
         "attribute" | "attribute.builtin" | "decorator" | "annotation" => Highlight::Attribute,
 
-        // Operators
+        // ── Operators ─────────────────────────────────────────────────
         "operator"
         | "operator.assignment"
         | "operator.arithmetic"
@@ -479,26 +537,32 @@ pub fn map_capture_name(name: &str) -> Highlight {
         | "operator.ternary"
         | "operator.spread" => Highlight::Operator,
 
-        // Punctuation — brackets and delimiters render muted, not as operators.
+        // ── Punctuation ───────────────────────────────────────────────
         "punctuation.bracket" | "punctuation.delimiter" | "punctuation.special" | "punctuation" => {
             Highlight::Punctuation
         }
 
-        // Numbers
+        // ── Numbers ───────────────────────────────────────────────────
         "number" | "number.float" | "number.integer" | "number.hex" | "number.octal"
-        | "number.binary" | "number.scientific" => Highlight::Number,
+        | "number.binary" | "number.scientific" | "float" => Highlight::Number,
 
-        // Properties
-        "property" | "property.definition" | "property.readonly" | "field" | "field.definition" => {
-            Highlight::Property
-        }
+        // ── Properties ────────────────────────────────────────────────
+        "property"
+        | "property.definition"
+        | "property.readonly"
+        | "field"
+        | "field.definition"
+        | "variable.other.member" => Highlight::Property,
 
-        // Namespaces
+        // ── Namespaces / modules ──────────────────────────────────────
         "namespace" | "module" | "package" | "import" | "include" => Highlight::Namespace,
 
-        // Markdown-specific captures
+        // ── Errors ────────────────────────────────────────────────────
+        "error" | "invalid" => Highlight::Error,
+
+        // ── Markdown-specific captures ────────────────────────────────
         "emphasis" | "text.emphasis" => Highlight::Comment,
-        "strong_emphasis" | "text.strong" => Highlight::Keyword,
+        "strong_emphasis" | "text.strong" => Highlight::KeywordControl,
         "code_span" | "inline_code" | "text.literal" | "code_block.content" => Highlight::Constant,
         "link_text"
         | "shortcut_link"
@@ -517,7 +581,7 @@ pub fn map_capture_name(name: &str) -> Highlight {
         "html_tag" | "html" | "html_block" | "html_inline" | "tag" => Highlight::Attribute,
         "hard_line_break" | "line_break" | "soft_line_break" => Highlight::Operator,
         "strikethrough" => Highlight::Comment,
-        "backslash_escape" => Highlight::String,
+        "backslash_escape" => Highlight::Escape,
         "latex" | "text.math" => Highlight::Constant,
 
         // Headings
@@ -558,9 +622,22 @@ pub fn map_capture_name(name: &str) -> Highlight {
         "thematic_break" | "atx_heading_marker" => Highlight::Operator,
         "paragraph" | "inline" | "block" | "document" | "plain" => Highlight::Plain,
 
-        // Catch-all
-        _ => Highlight::Plain,
+        // ── Catch-all — log in debug mode so missing captures surface ──
+        other => {
+            if syntax_debug_enabled() {
+                eprintln!("SYNTAX_FALLBACK: unmapped capture={other}");
+            }
+            Highlight::Plain
+        }
     }
+}
+
+/// Whether the syntax-debug trace is enabled (`ZAROXI_DEBUG_SYNTAX=1`).
+/// Evaluated once per process so the hot path is a single atomic load.
+fn syntax_debug_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("ZAROXI_DEBUG_SYNTAX").as_deref() == Ok("1"))
 }
 
 /// Retrieve the highlights.scm query text for the given language.

@@ -344,37 +344,40 @@ impl SemanticColors {
             editor_selection: Color::from_rgba(0.6157, 0.4824, 0.9412, 0.22), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.8235, 0.6, 0.1333, 0.22), // git_modified_surface — search match
 
-            // Syntax — teal keywords = Zaroxi signature; high contrast on key tokens, receding punctuation.
-            syntax_keyword: Color::from_hex("#3DDBD9"), // syn_keyword — TEAL signature (no other IDE does this)
-            syntax_function: Color::from_hex("#9ECBFF"), // syn_function — soft sky blue
-            syntax_method: Color::from_hex("#9ECBFF"),  // syn_function
-            syntax_string: Color::from_hex("#F0A882"),  // syn_string — warm peach/coral
-            syntax_comment: Color::from_hex("#4E6A4E"), // syn_comment — low-contrast, recedes intentionally
-            syntax_type: Color::from_hex("#F0C674"),    // syn_type — warm gold
-            syntax_variable: Color::from_hex("#C8C6DA"), // syn_variable — warm light gray
-            syntax_constant: Color::from_hex("#D7BA7D"), // syn_constant — warm yellow
-            syntax_number: Color::from_hex("#B5CEA8"),  // syn_number — sage green
-            syntax_operator: Color::from_hex("#8B9EC9"), // syn_operator — muted periwinkle
-            syntax_punctuation: Color::from_hex("#5A586E"), // syn_punct — very dim, glyphs recede
-            syntax_attribute: Color::from_hex("#C586C0"), // syn_attribute — soft magenta
-            syntax_tag: Color::from_hex("#3DDBD9"),     // syn_keyword — markup structure teal
-            syntax_namespace: Color::from_hex("#A8A6C0"), // syn_module — near-neutral cool
-            syntax_macro: Color::from_hex("#C586C0"),   // syn_macro — soft magenta (special syntax)
-            syntax_property: Color::from_hex("#C8C6DA"), // syn_property — named slots, like variables
-            syntax_parameter: Color::from_hex("#C8C6DA"), // syn_parameter
-            syntax_builtin: Color::from_hex("#9ECBFF"),  // syn_function — builtin function
-            syntax_escape: Color::from_hex("#D7BA7D"), // syn_escape — special value, like constant
-            syntax_embedded: Color::from_hex("#3DDBD9"), // syn_interpolation — teal "active" slots
-            syntax_regex: Color::from_hex("#F0A882"),  // syn_regex — like string
-            syntax_markup_heading: Color::from_hex("#3DDBD9"), // syn_keyword — teal headings
-            syntax_markup_list: Color::from_hex("#8B9EC9"), // syn_operator — dim list markers
-            syntax_markup_quote: Color::from_hex("#4E6A4E"), // syn_comment — dim blockquote
-            syntax_markup_link: Color::from_hex("#9ECBFF"), // syn_function — blue links
-            syntax_markup_code: Color::from_hex("#F0A882"), // syn_string — peach inline code
-            syntax_markup_bold: Color::from_hex("#D7BA7D"), // syn_constant — warm emphasis
-            syntax_markup_italic: Color::from_hex("#C8C6DA"), // syn_variable — neutral italic
-            syntax_markup_strikethrough: Color::from_hex("#6B6980"), // text_muted
-            syntax_lifetime: Color::from_hex("#D4A0A0"), // syn_lifetime — dusty rose, spotable
+            // Syntax — VS Code Dark+ palette, Zaroxi indigo/teal identity.
+            // keyword = purple-pink (structure), import = ZAROXI TEAL (use/mod),
+            // function = soft yellow, type = teal-green, string = terracotta,
+            // lifetime/self = ZAROXI INDIGO (brand signature moment).
+            syntax_keyword: Color::from_hex("#C586C0"), // syn_keyword — VS Code purple-pink, proven excellent
+            syntax_function: Color::from_hex("#DCDCAA"), // syn_function — VS Code soft yellow
+            syntax_method: Color::from_hex("#DCDCAA"),  // syn_method — call sites match function
+            syntax_string: Color::from_hex("#CE9178"),  // syn_string — VS Code terracotta
+            syntax_comment: Color::from_hex("#6A9955"), // syn_comment — VS Code muted green, recedes
+            syntax_type: Color::from_hex("#4EC9B0"), // syn_type — VS Code teal-green, proven distinct
+            syntax_variable: Color::from_hex("#9CDCFE"), // syn_variable — VS Code light blue
+            syntax_constant: Color::from_hex("#4FC1FF"), // syn_constant — VS Code bright blue
+            syntax_number: Color::from_hex("#B5CEA8"), // syn_number — VS Code sage green
+            syntax_operator: Color::from_hex("#D4D4D4"), // syn_operator — VS Code near-white, high vis
+            syntax_punctuation: Color::from_hex("#B4B4B4"), // syn_punct — dimmer than operator
+            syntax_attribute: Color::from_hex("#9CDCFE"), // syn_attribute — VS Code light blue
+            syntax_tag: Color::from_hex("#C586C0"),      // syn_tag — markup structure purple
+            syntax_namespace: Color::from_hex("#3DDBD9"), // syn_namespace — ZAROXI TEAL (use/mod/import paths)
+            syntax_macro: Color::from_hex("#C586C0"),     // syn_macro — macros match keyword purple
+            syntax_property: Color::from_hex("#9CDCFE"), // syn_property — field access, like variables
+            syntax_parameter: Color::from_hex("#9CDCFE"), // syn_parameter
+            syntax_builtin: Color::from_hex("#9D7BF0"), // syn_builtin — ZAROXI INDIGO (self/Self — brand moment)
+            syntax_escape: Color::from_hex("#D7BA7D"),  // syn_escape — warm yellow, \n \t
+            syntax_embedded: Color::from_hex("#3DDBD9"), // syn_embedded — teal interpolation
+            syntax_regex: Color::from_hex("#CE9178"),   // syn_regex — matches string
+            syntax_markup_heading: Color::from_hex("#C586C0"), // purple heading
+            syntax_markup_list: Color::from_hex("#D4D4D4"), // dim list markers
+            syntax_markup_quote: Color::from_hex("#6A9955"), // dim blockquote
+            syntax_markup_link: Color::from_hex("#9CDCFE"), // blue links
+            syntax_markup_code: Color::from_hex("#CE9178"), // terracotta inline code
+            syntax_markup_bold: Color::from_hex("#4FC1FF"), // bright emphasis
+            syntax_markup_italic: Color::from_hex("#9CDCFE"), // neutral italic
+            syntax_markup_strikethrough: Color::from_hex("#6A9955"), // dim
+            syntax_lifetime: Color::from_hex("#9D7BF0"), // ZAROXI INDIGO — lifetimes (brand signature moment)
         }
     }
 
@@ -491,37 +494,37 @@ impl SemanticColors {
             editor_selection: Color::from_rgba(0.4314, 0.251, 0.7882, 0.18), // accent — matches text selection
             editor_find_highlight: Color::from_rgba(0.6039, 0.4039, 0.0, 0.22), // git_modified_surface — search match
 
-            // Syntax — deeper teal keywords keep the Zaroxi signature; darkened so nothing washes out.
-            syntax_keyword: Color::from_hex("#0E8B89"), // syn_keyword — deep teal signature
-            syntax_function: Color::from_hex("#0550AE"), // syn_function — deep blue
-            syntax_method: Color::from_hex("#0550AE"),  // syn_function
-            syntax_string: Color::from_hex("#953800"),  // syn_string — terracotta/coral
-            syntax_comment: Color::from_hex("#8B9EB0"), // syn_comment — blue-gray, recedes
-            syntax_type: Color::from_hex("#8B5000"),    // syn_type — deep amber/brown
-            syntax_variable: Color::from_hex("#1A1830"), // syn_variable — near-ink
-            syntax_constant: Color::from_hex("#8B5000"), // syn_constant — deep amber
-            syntax_number: Color::from_hex("#116329"),  // syn_number — deep green
-            syntax_operator: Color::from_hex("#4A4580"), // syn_operator — muted indigo-gray
-            syntax_punctuation: Color::from_hex("#8B88A8"), // syn_punct — dim, recedes
-            syntax_attribute: Color::from_hex("#8250DF"), // syn_attribute — purple metadata
-            syntax_tag: Color::from_hex("#0E8B89"),     // syn_keyword — markup structure teal
-            syntax_namespace: Color::from_hex("#3D3A54"), // syn_module — near-neutral
-            syntax_macro: Color::from_hex("#8250DF"),   // syn_macro — purple (special syntax)
-            syntax_property: Color::from_hex("#1A1830"), // syn_property — like variable
-            syntax_parameter: Color::from_hex("#1A1830"), // syn_parameter
-            syntax_builtin: Color::from_hex("#0550AE"), // syn_function — builtin function
-            syntax_escape: Color::from_hex("#8B5000"),  // syn_escape — special value, like constant
-            syntax_embedded: Color::from_hex("#0E8B89"), // syn_interpolation — teal "active" slots
-            syntax_regex: Color::from_hex("#953800"),   // syn_regex — like string
-            syntax_markup_heading: Color::from_hex("#0E8B89"), // syn_keyword — teal headings
-            syntax_markup_list: Color::from_hex("#4A4580"), // syn_operator — dim list markers
-            syntax_markup_quote: Color::from_hex("#8B9EB0"), // syn_comment — dim blockquote
-            syntax_markup_link: Color::from_hex("#0550AE"), // syn_function — blue links
-            syntax_markup_code: Color::from_hex("#953800"), // syn_string — inline code
-            syntax_markup_bold: Color::from_hex("#8B5000"), // syn_constant — warm emphasis
-            syntax_markup_italic: Color::from_hex("#1A1830"), // syn_variable — neutral italic
-            syntax_markup_strikethrough: Color::from_hex("#6B6880"), // text_muted
-            syntax_lifetime: Color::from_hex("#953800"), // syn_lifetime — terracotta, spotable
+            // Syntax — VS Code Light+ palette, Zaroxi indigo/teal identity.
+            syntax_keyword: Color::from_hex("#AF00DB"), // syn_keyword — VS Code Light+ purple
+            syntax_function: Color::from_hex("#795E26"), // syn_function — brown-gold
+            syntax_method: Color::from_hex("#795E26"),  // syn_method
+            syntax_string: Color::from_hex("#A31515"),  // syn_string — deep red
+            syntax_comment: Color::from_hex("#008000"), // syn_comment — green, recedes
+            syntax_type: Color::from_hex("#267F99"),    // syn_type — teal
+            syntax_variable: Color::from_hex("#001080"), // syn_variable — dark blue
+            syntax_constant: Color::from_hex("#0070C1"), // syn_constant — bright blue
+            syntax_number: Color::from_hex("#098658"),  // syn_number — green
+            syntax_operator: Color::from_hex("#000000"), // syn_operator — near-black for contrast
+            syntax_punctuation: Color::from_hex("#383838"), // syn_punct — dim
+            syntax_attribute: Color::from_hex("#001080"), // syn_attribute — dark blue
+            syntax_tag: Color::from_hex("#AF00DB"),     // syn_tag — purple
+            syntax_namespace: Color::from_hex("#0E8B89"), // syn_namespace — ZAROXI TEAL (use/mod/import)
+            syntax_macro: Color::from_hex("#AF00DB"),     // syn_macro — purple
+            syntax_property: Color::from_hex("#001080"),  // syn_property
+            syntax_parameter: Color::from_hex("#001080"), // syn_parameter
+            syntax_builtin: Color::from_hex("#6E40C9"),   // syn_builtin — ZAROXI INDIGO (self/Self)
+            syntax_escape: Color::from_hex("#EE0000"),    // syn_escape — red
+            syntax_embedded: Color::from_hex("#0E8B89"),  // syn_embedded — teal
+            syntax_regex: Color::from_hex("#A31515"),     // syn_regex — like string
+            syntax_markup_heading: Color::from_hex("#AF00DB"), // purple heading
+            syntax_markup_list: Color::from_hex("#000000"), // dim list markers
+            syntax_markup_quote: Color::from_hex("#008000"), // dim blockquote
+            syntax_markup_link: Color::from_hex("#001080"), // blue links
+            syntax_markup_code: Color::from_hex("#A31515"), // inline code
+            syntax_markup_bold: Color::from_hex("#0070C1"), // bright emphasis
+            syntax_markup_italic: Color::from_hex("#001080"), // neutral italic
+            syntax_markup_strikethrough: Color::from_hex("#6B6880"), // dim
+            syntax_lifetime: Color::from_hex("#6E40C9"), // ZAROXI INDIGO — lifetimes (brand signature)
         }
     }
 
