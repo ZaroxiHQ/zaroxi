@@ -10,6 +10,32 @@ All notable changes to Zaroxi Studio are documented in this file.
 Release notes are drafted automatically by Release Drafter from merged
 pull requests and adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<a id="v0.3.0-alpha-1"></a>
+# [v0.3.0-alpha-1](https://github.com/ZaroxiHQ/zaroxi/releases/tag/v0.3.0-alpha-1) - 2026-07-14
+
+## What's Changed
+
+### 🐛 Bug Fixes
+
+- feat(bottom-panel): real Problems/Output tabs and terminal polish ([#11](https://github.com/ZaroxiHQ/zaroxi/issues/11)) [@bymuja](https://github.com/bymuja)
+
+## Contributors
+
+[@bymuja](https://github.com/bymuja)
+
+**Full Changelog**: https://github.com/ZaroxiHQ/zaroxi/compare/v0.3.0-alpha...v0.3.0-alpha-1
+
+## What's Changed
+* feat(bottom-panel): real Problems/Output tabs and terminal polish by [@bymuja](https://github.com/bymuja) in [#11](https://github.com/ZaroxiHQ/zaroxi/pull/11)
+
+## New Contributors
+* [@bymuja](https://github.com/bymuja) made their first contribution in [#11](https://github.com/ZaroxiHQ/zaroxi/pull/11)
+
+**Full Changelog**: https://github.com/ZaroxiHQ/zaroxi/compare/v0.3.0-alpha...v0.3.0-alpha-1
+
+[Changes][v0.3.0-alpha-1]
+
+
 <a id="v0.3.0-alpha"></a>
 # [v0.3.0-alpha](https://github.com/ZaroxiHQ/zaroxi/releases/tag/v0.3.0-alpha) - 2026-07-05
 
@@ -52,6 +78,7 @@ No contributors
 [Changes][Version-0.1.0]
 
 
+[v0.3.0-alpha-1]: https://github.com/ZaroxiHQ/zaroxi/compare/v0.3.0-alpha...v0.3.0-alpha-1
 [v0.3.0-alpha]: https://github.com/ZaroxiHQ/zaroxi/compare/version-0.2.0...v0.3.0-alpha
 [version-0.2.0]: https://github.com/ZaroxiHQ/zaroxi/compare/Version-0.1.0...version-0.2.0
 [Version-0.1.0]: https://github.com/ZaroxiHQ/zaroxi/tree/Version-0.1.0
