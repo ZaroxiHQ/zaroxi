@@ -1,57 +1,64 @@
 //! Integration tests for the PTY-backed terminal session.
 //!
-//! These spawn a **real** shell in a PTY and exercise the full lifecycle:
-//! output pump, input, resize, scrollback and clean exit/restart. They are
-//! written defensively (bounded polling with a timeout).
-//!
 //! Tests that depend on child-process output are gated to `#[cfg(unix)]`
-//! because `portable_pty`'s Windows `conpty` implementation does not reliably
-//! deliver child stdout on headless CI runners (output is silently lost).
+//! because `portable_pty`'s Windows `conpty` does not reliably deliver
+//! child stdout on headless CI runners (output is silently lost).
 //! The resize and drop-leak tests exercise the session plumbing itself and
 //! are safe on both platforms.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use zaroxi_core_platform_terminal::{PumpOutcome, TerminalConfig, TerminalSession};
+use zaroxi_core_platform_terminal::{TerminalConfig, TerminalSession};
 
-fn spawn_unix(cmd: &str) -> Option<TerminalSession> {
-    let mut cfg = TerminalConfig { rows: 24, cols: 80, ..Default::default() };
-    cfg.shell = Some("/bin/sh".to_string());
-    cfg.args = vec!["-c".to_string(), cmd.to_string()];
-    TerminalSession::spawn(&cfg).ok()
-}
+// ── Unix-only helpers ─────────────────────────────────────────────────
 
-fn pump_until(session: &mut TerminalSession, pred: impl Fn(&TerminalSession) -> bool) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let _: PumpOutcome = session.pump();
-        if pred(session) {
-            return true;
+#[cfg(unix)]
+mod unix_helpers {
+    use std::time::{Duration, Instant};
+    use zaroxi_core_platform_terminal::{PumpOutcome, TerminalConfig, TerminalSession};
+
+    pub fn spawn(cmd: &str) -> Option<TerminalSession> {
+        let mut cfg = TerminalConfig { rows: 24, cols: 80, ..Default::default() };
+        cfg.shell = Some("/bin/sh".to_string());
+        cfg.args = vec!["-c".to_string(), cmd.to_string()];
+        TerminalSession::spawn(&cfg).ok()
+    }
+
+    pub fn pump_until(
+        session: &mut TerminalSession,
+        pred: impl Fn(&TerminalSession) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let _: PumpOutcome = session.pump();
+            if pred(session) {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-        if Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    pub fn send_or_abort(session: &mut TerminalSession, bytes: &[u8]) -> bool {
+        session.send_input(bytes).is_ok()
+    }
+
+    pub fn screen_contains(session: &TerminalSession, needle: &str) -> bool {
+        session.screen().contents().contains(needle)
     }
 }
 
-fn send_or_abort(session: &mut TerminalSession, bytes: &[u8]) -> bool {
-    session.send_input(bytes).is_ok()
-}
-
-fn screen_contains(session: &TerminalSession, needle: &str) -> bool {
-    session.screen().contents().contains(needle)
-}
+#[cfg(unix)]
+use unix_helpers::*;
 
 // ── Tests requiring child-process output (Unix-only) ──────────────────
-// portable_pty's Windows conpty does not reliably deliver child stdout on
-// headless CI runners; these tests are gated to Unix where PTY output is
-// robust and deterministic.
 
 #[test]
 #[cfg(unix)]
 fn spawns_shell_and_captures_output() {
-    let Some(mut session) = spawn_unix("echo zaroxi_hello") else {
+    let Some(mut session) = spawn("echo zaroxi_hello") else {
         eprintln!("no shell available; skipping");
         return;
     };
@@ -62,7 +69,7 @@ fn spawns_shell_and_captures_output() {
 #[test]
 #[cfg(unix)]
 fn detects_child_exit() {
-    let Some(mut session) = spawn_unix("exit 0") else {
+    let Some(mut session) = spawn("exit 0") else {
         return;
     };
     let exited = pump_until(&mut session, |s| !s.is_alive());
@@ -73,7 +80,7 @@ fn detects_child_exit() {
 #[test]
 #[cfg(unix)]
 fn interactive_input_roundtrips() {
-    let Some(mut session) = spawn_unix("while read line; do echo got:$line; done") else {
+    let Some(mut session) = spawn("while read line; do echo got:$line; done") else {
         return;
     };
     std::thread::sleep(Duration::from_millis(200));
@@ -90,7 +97,7 @@ fn interactive_input_roundtrips() {
 #[cfg(unix)]
 fn scrollback_offset_moves_and_snaps_back() {
     let cmd = "i=0; while [ $i -lt 200 ]; do echo line$i; i=$((i+1)); done; sleep 2";
-    let Some(mut session) = spawn_unix(cmd) else {
+    let Some(mut session) = spawn(cmd) else {
         return;
     };
     let saw = pump_until(&mut session, |s| screen_contains(s, "line199") || !s.is_alive());
@@ -106,8 +113,6 @@ fn scrollback_offset_moves_and_snaps_back() {
 }
 
 // ── Session-plumbing tests (both platforms) ───────────────────────────
-// These exercise the session struct itself (resize, drop) without
-// depending on child-process output.
 
 #[test]
 fn resize_updates_grid_dimensions() {
