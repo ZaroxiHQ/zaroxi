@@ -3,14 +3,14 @@
 //! These spawn a **real** shell in a PTY and exercise the full lifecycle:
 //! output pump, input, resize, scrollback and clean exit/restart. They are
 //! written defensively (bounded polling with a timeout) so they are robust in
-//! headless CI. On platforms without a POSIX `sh`/`cmd.exe` they are skipped.
+//! headless CI. On platforms without a POSIX `sh` / `cmd.exe` / `powershell`
+//! they are skipped.
 
 use std::time::{Duration, Instant};
 
 use zaroxi_core_platform_terminal::{PumpOutcome, TerminalConfig, TerminalSession};
 
-/// Spawn a session running a specific program, or return `None` when no shell
-/// could be launched (so the test skips instead of failing on exotic hosts).
+/// Spawn a session running a platform-appropriate command.
 fn spawn(cmd: &str) -> Option<TerminalSession> {
     let mut cfg = TerminalConfig { rows: 24, cols: 80, ..Default::default() };
     #[cfg(unix)]
@@ -20,13 +20,18 @@ fn spawn(cmd: &str) -> Option<TerminalSession> {
     }
     #[cfg(windows)]
     {
-        cfg.shell = Some("cmd.exe".to_string());
-        cfg.args = vec!["/C".to_string(), cmd.to_string()];
+        cfg.shell = Some("powershell.exe".to_string());
+        cfg.args = vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            cmd.to_string(),
+        ];
     }
     TerminalSession::spawn(&cfg).ok()
 }
 
-/// Pump until `pred` holds or the timeout elapses. Returns the last outcome.
+/// Pump until `pred` holds or the timeout elapses.
 fn pump_until(session: &mut TerminalSession, pred: impl Fn(&TerminalSession) -> bool) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -41,10 +46,7 @@ fn pump_until(session: &mut TerminalSession, pred: impl Fn(&TerminalSession) -> 
     }
 }
 
-/// Helper to attempt a non-blocking write or give up.
 fn send_or_abort(session: &mut TerminalSession, bytes: &[u8]) -> bool {
-    // send_input() now calls pump() internally and returns BrokenPipe
-    // if the child has exited — no blocking on dead PTYs.
     session.send_input(bytes).is_ok()
 }
 
@@ -54,7 +56,11 @@ fn screen_contains(session: &TerminalSession, needle: &str) -> bool {
 
 #[test]
 fn spawns_shell_and_captures_output() {
-    let Some(mut session) = spawn("echo zaroxi_hello") else {
+    #[cfg(unix)]
+    let cmd = "echo zaroxi_hello";
+    #[cfg(windows)]
+    let cmd = "Write-Host zaroxi_hello";
+    let Some(mut session) = spawn(cmd) else {
         eprintln!("no shell available; skipping");
         return;
     };
@@ -64,7 +70,11 @@ fn spawns_shell_and_captures_output() {
 
 #[test]
 fn detects_child_exit() {
-    let Some(mut session) = spawn("exit 0") else {
+    #[cfg(unix)]
+    let cmd = "exit 0";
+    #[cfg(windows)]
+    let cmd = "exit 0";
+    let Some(mut session) = spawn(cmd) else {
         return;
     };
     let exited = pump_until(&mut session, |s| !s.is_alive());
@@ -73,30 +83,15 @@ fn detects_child_exit() {
 }
 
 #[test]
-#[cfg(unix)]
 fn interactive_input_roundtrips() {
-    let Some(mut session) = spawn("while read line; do echo got:$line; done") else {
+    #[cfg(unix)]
+    let cmd = "while read line; do echo got:$line; done";
+    #[cfg(windows)]
+    let cmd = "while($true){$line=Read-Host;Write-Host \"got:$line\"}";
+    let Some(mut session) = spawn(cmd) else {
         return;
     };
-    std::thread::sleep(Duration::from_millis(100));
-    let sent = send_or_abort(&mut session, b"ping\n");
-    if !sent {
-        eprintln!("send_input failed (child likely exited early); skipping");
-        return;
-    }
-    let saw = pump_until(&mut session, |s| screen_contains(s, "got:ping"));
-    assert!(saw, "typed input should be processed by the shell and echoed");
-}
-
-#[test]
-#[cfg(windows)]
-fn interactive_input_roundtrips() {
-    // On Windows we use cmd.exe's built-in `set /p` + `echo` for a
-    // minimal interactive loop that echoes back user input.
-    let Some(mut session) = spawn("for /l %i in (1,1,10) do (set /p x= && echo got:!x!)") else {
-        return;
-    };
-    std::thread::sleep(Duration::from_millis(100));
+    std::thread::sleep(Duration::from_millis(200));
     let sent = send_or_abort(&mut session, b"ping\r\n");
     if !sent {
         eprintln!("send_input failed (child likely exited early); skipping");
@@ -108,7 +103,11 @@ fn interactive_input_roundtrips() {
 
 #[test]
 fn resize_updates_grid_dimensions() {
-    let Some(mut session) = spawn("cat") else {
+    #[cfg(unix)]
+    let cmd = "cat";
+    #[cfg(windows)]
+    let cmd = "$null = $input"; // read stdin silently; keeps the shell alive
+    let Some(mut session) = spawn(cmd) else {
         return;
     };
     assert_eq!(session.size(), (24, 80));
@@ -123,14 +122,21 @@ fn scrollback_offset_moves_and_snaps_back() {
     #[cfg(unix)]
     let cmd = "i=0; while [ $i -lt 200 ]; do echo line$i; i=$((i+1)); done; sleep 2";
     #[cfg(windows)]
-    let cmd = "for /l %i in (0,1,199) do @echo line%i";
+    let cmd = "for($i=0;$i -lt 200;$i++){Write-Host \"line$i\"};Start-Sleep -Seconds 2";
     let Some(mut session) = spawn(cmd) else {
         return;
     };
-    let _ = pump_until(&mut session, |s| screen_contains(s, "line199") || !s.is_alive());
+    let saw = pump_until(&mut session, |s| screen_contains(s, "line199") || !s.is_alive());
+    // If the child exited before producing output (e.g. powershell not available),
+    // skip the scrollback assertions rather than failing.
+    if !session.is_alive() && !screen_contains(&session, "line199") {
+        eprintln!("child exited before producing scrollback output; skipping");
+        return;
+    }
+    assert!(saw, "expected line199 to appear on screen");
     session.scroll_up(50);
     assert!(session.scroll_offset() > 0, "scrollback offset should advance into history");
-    let _ = send_or_abort(&mut session, b"\r\n");
+    send_or_abort(&mut session, b"\r\n");
     assert_eq!(session.scroll_offset(), 0, "input snaps the view to the bottom");
 }
 
@@ -139,14 +145,10 @@ fn no_leaked_process_after_drop() {
     #[cfg(unix)]
     let cmd = "sleep 30";
     #[cfg(windows)]
-    let cmd = "timeout /t 30 /nobreak";
+    let cmd = "Start-Sleep -Seconds 30";
     let Some(mut session) = spawn(cmd) else {
         return;
     };
     let _ = session.pump();
-    // Dropping the session must kill the child (Drop calls the killer).
-    // On platforms where kill() does not cause immediate PTY EOF, the
-    // reader thread may take a moment to observe the close, but the test
-    // process is not blocked (Drop no longer joins the reader thread).
     drop(session);
 }
