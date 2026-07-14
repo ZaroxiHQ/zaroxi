@@ -5,18 +5,17 @@
 
 use std::sync::{Arc, Mutex};
 
-use zaroxi_domain_ai::actions::{ActionSpec, DiagnosticInfo, DiffChange, DiffResult};
 use zaroxi_domain_ai::edit_flow::{
     EditApplyResult, EditDecision, EditFlow, EditFlowStage, EditProposal,
 };
 
 use crate::action_service::ActionService;
 use crate::diff_applier;
-use crate::ports::AiClient;
 
 /// Service orchestrating edit review and application flows.
 pub struct EditFlowService {
     flow: Mutex<EditFlow>,
+    #[allow(dead_code)]
     action_service: Arc<ActionService>,
 }
 
@@ -112,6 +111,7 @@ impl EditFlowService {
 mod tests {
     use super::*;
     use crate::ports::{AiClient, AiError, AiRequest, AiResponseDTO, BoxFuture};
+    use zaroxi_domain_ai::actions::{DiffChange, DiffResult};
 
     struct TestAiClient;
 

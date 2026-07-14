@@ -96,10 +96,10 @@ impl AiPanel {
         });
 
         // Provider badge if status is known
-        if let Some(status) = &data.provider_status {
-            if let Some(badge) = Self::build_provider_badge(r, tokens, status) {
-                blocks.push(badge);
-            }
+        if let Some(status) = &data.provider_status
+            && let Some(badge) = Self::build_provider_badge(r, tokens, status)
+        {
+            blocks.push(badge);
         }
 
         blocks

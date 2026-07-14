@@ -3,7 +3,7 @@
 //!
 //! Phase 2: bridges AI-generated diffs to the buffer mutation layer.
 
-use zaroxi_core_editor_buffer::ports::{BufferId, TextEdit};
+use zaroxi_core_editor_buffer::ports::TextEdit;
 use zaroxi_domain_ai::actions::{DiffChange, DiffResult};
 
 /// Convert a `DiffResult` into a sequence of `TextEdit` operations.

@@ -9,7 +9,6 @@ use zaroxi_domain_ai::mcp::{McpConnectionState, McpTool};
 use zaroxi_domain_ai::mcp_jsonrpc::{
     JsonRpcId, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
 };
-use zaroxi_domain_ai::mcp_stdio::StdioTransport;
 use zaroxi_domain_ai::mcp_transport::McpTransportConnection;
 
 pub struct McpToolResult {

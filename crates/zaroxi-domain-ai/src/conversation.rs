@@ -106,6 +106,12 @@ pub struct Conversation {
     pub created_at_ms: u64,
 }
 
+impl Default for Conversation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Conversation {
     pub fn new() -> Self {
         Self {
@@ -148,7 +154,7 @@ impl Conversation {
 }
 
 /// Aggregate session state for the AI panel.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ConversationSession {
     /// Current active conversation.
     pub active_conversation: Conversation,
@@ -156,17 +162,11 @@ pub struct ConversationSession {
     pub history: Vec<Conversation>,
 }
 
-impl Default for ConversationSession {
-    fn default() -> Self {
-        Self { active_conversation: Conversation::new(), history: Vec::new() }
-    }
-}
-
 impl ConversationSession {
     /// Start a fresh conversation, archiving the current one.
     pub fn new_chat(&mut self) {
         if !self.active_conversation.messages.is_empty() {
-            let old = std::mem::replace(&mut self.active_conversation, Conversation::new());
+            let old = std::mem::take(&mut self.active_conversation);
             self.history.push(old);
         } else {
             self.active_conversation = Conversation::new();

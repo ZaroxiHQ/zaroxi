@@ -35,12 +35,12 @@ impl ActionService {
         prompt.push_str(spec.kind.prompt_instruction());
         prompt.push('\n');
 
-        if let Some(ref instr) = spec.instruction {
-            if !instr.is_empty() {
-                prompt.push_str("Request: ");
-                prompt.push_str(instr);
-                prompt.push('\n');
-            }
+        if let Some(ref instr) = spec.instruction
+            && !instr.is_empty()
+        {
+            prompt.push_str("Request: ");
+            prompt.push_str(instr);
+            prompt.push('\n');
         }
         if let Some(extra) = extra_instruction {
             prompt.push_str("Additional guidance: ");
@@ -61,11 +61,11 @@ impl ActionService {
         }
 
         // Attach IDE context
-        if let Some(ctx) = context {
-            if ctx.has_any_context() {
-                prompt.push_str("\n--- Context ---\n");
-                prompt.push_str(&ctx.format_for_prompt());
-            }
+        if let Some(ctx) = context
+            && ctx.has_any_context()
+        {
+            prompt.push_str("\n--- Context ---\n");
+            prompt.push_str(&ctx.format_for_prompt());
         }
 
         // Attach diagnostics
@@ -81,12 +81,12 @@ impl ActionService {
         }
 
         // Surrounding context
-        if let Some(ref surrounding) = spec.surrounding_context {
-            if !surrounding.is_empty() {
-                prompt.push_str("\n--- Surrounding Code ---\n");
-                prompt.push_str(surrounding);
-                prompt.push('\n');
-            }
+        if let Some(ref surrounding) = spec.surrounding_context
+            && !surrounding.is_empty()
+        {
+            prompt.push_str("\n--- Surrounding Code ---\n");
+            prompt.push_str(surrounding);
+            prompt.push('\n');
         }
 
         // Target content

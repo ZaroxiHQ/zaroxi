@@ -8,11 +8,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use zaroxi_domain_ai::mcp::{
-    McpConnectionState, McpServerConfig, McpServerState, McpSettings, McpTool,
-};
+use zaroxi_domain_ai::mcp::{McpConnectionState, McpServerState, McpSettings, McpTool};
 use zaroxi_domain_ai::mcp_stdio::StdioTransport;
-use zaroxi_domain_ai::mcp_transport::McpTransportConnection;
 
 use crate::mcp_client::McpClient;
 
@@ -26,6 +23,12 @@ struct McpServiceState {
 /// Manages MCP server connections, tool discovery, and tool calls.
 pub struct McpService {
     state: Arc<Mutex<McpServiceState>>,
+}
+
+impl Default for McpService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl McpService {
@@ -142,10 +145,8 @@ impl McpService {
         if !enabled {
             srv.connection_state = McpConnectionState::Disabled;
         }
-        if !enabled {
-            if let Some(mut client) = state.clients.remove(server_id) {
-                client.disconnect();
-            }
+        if !enabled && let Some(mut client) = state.clients.remove(server_id) {
+            client.disconnect();
         }
         Ok(())
     }
@@ -178,6 +179,7 @@ impl McpStatusSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zaroxi_domain_ai::mcp::McpServerConfig;
     use zaroxi_domain_ai::mcp::McpTransport;
 
     #[test]

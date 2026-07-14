@@ -8,6 +8,12 @@ pub struct SessionManager {
     session: Mutex<ConversationSession>,
 }
 
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionManager {
     pub fn new() -> Self {
         Self { session: Mutex::new(ConversationSession::default()) }
@@ -38,11 +44,11 @@ impl SessionManager {
         let mut session = self.session.lock().unwrap();
         let conv = &mut session.active_conversation;
         conv.status = ConversationStatus::Streaming;
-        if let Some(last) = conv.last_message_mut() {
-            if last.role == ChatRole::Assistant {
-                last.append_chunk(content);
-                return;
-            }
+        if let Some(last) = conv.last_message_mut()
+            && last.role == ChatRole::Assistant
+        {
+            last.append_chunk(content);
+            return;
         }
         let mut new_msg = ChatMessage::assistant("");
         new_msg.append_chunk(content);

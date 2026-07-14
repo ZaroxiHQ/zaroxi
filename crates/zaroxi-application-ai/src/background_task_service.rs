@@ -4,10 +4,9 @@
 //! Phase 4: non-blocking AI operations with cancellation and progress.
 //! Integrates with the agent orchestrator and action service for execution.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use zaroxi_domain_ai::actions::ActionKind;
-use zaroxi_domain_ai::agent::AgentSession;
 use zaroxi_domain_ai::background_task::{
     BackgroundTask, TaskPriority, TaskQueue, TaskQueueSummary, TaskStatus,
 };

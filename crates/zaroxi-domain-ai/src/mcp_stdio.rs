@@ -5,7 +5,6 @@
 //! A background reader thread collects incoming messages; outgoing messages
 //! are written directly to stdin.
 
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;

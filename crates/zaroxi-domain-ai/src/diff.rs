@@ -22,7 +22,7 @@ pub fn compute_diff(original: &str, modified: &str) -> Vec<DiffChange> {
     let mod_lines: Vec<&str> = modified.lines().collect();
 
     let line_ratio = orig_lines.len().max(1) as f64 / mod_lines.len().max(1) as f64;
-    if line_ratio < 0.3 || line_ratio > 3.0 {
+    if !(0.3..=3.0).contains(&line_ratio) {
         return vec![DiffChange::Replace {
             start: 0,
             end: original.len(),
@@ -38,12 +38,12 @@ pub fn compute_diff(original: &str, modified: &str) -> Vec<DiffChange> {
         result.push(compute_char_diff(change, &char_offsets, original.len()));
     }
 
-    if result.len() == 1 {
-        if let DiffChange::Replace { start, end, .. } = &result[0] {
-            if *start == 0 && *end >= original.len() - 1 {
-                return result;
-            }
-        }
+    if result.len() == 1
+        && let DiffChange::Replace { start, end, .. } = &result[0]
+        && *start == 0
+        && *end >= original.len() - 1
+    {
+        return result;
     }
     result
 }

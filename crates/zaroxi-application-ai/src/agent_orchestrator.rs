@@ -13,17 +13,16 @@
 
 use std::sync::{Arc, Mutex};
 
-use zaroxi_domain_ai::actions::{ActionKind, ActionSpec, DiagnosticInfo};
+use zaroxi_domain_ai::actions::{ActionKind, ActionSpec};
 use zaroxi_domain_ai::agent::{AgentSession, AgentState, StepResult, TaskPlan, TaskStep};
 use zaroxi_domain_ai::context_ide::ContextPack;
-use zaroxi_domain_ai::diff::compute_diff;
 
 use crate::action_service::ActionService;
-use crate::context_collector;
 
 /// The agent orchestrator manages a single agent session at a time.
 pub struct AgentOrchestrator {
     session: Mutex<AgentSession>,
+    #[allow(dead_code)]
     action_service: Arc<ActionService>,
 }
 
@@ -64,7 +63,7 @@ impl AgentOrchestrator {
 
     /// Get the next step to execute, or None if complete.
     pub fn next_step(&self) -> Option<TaskStep> {
-        let mut session = self.session.lock().unwrap();
+        let session = self.session.lock().unwrap();
         if session.state != AgentState::Executing {
             return None;
         }
@@ -84,7 +83,8 @@ impl AgentOrchestrator {
     ) -> StepResult {
         // Construct a default spec from the step if not provided
         let default_spec;
-        let spec = match spec {
+        let _context = context; // reserved for future context injection
+        let _resolved_spec = match spec {
             Some(s) => s,
             None => {
                 default_spec = ActionSpec {
@@ -169,11 +169,11 @@ impl AgentOrchestrator {
         prompt.push_str(goal);
         prompt.push('\n');
 
-        if let Some(ctx) = context {
-            if ctx.has_any_context() {
-                prompt.push_str("\n--- Context ---\n");
-                prompt.push_str(&ctx.format_for_prompt());
-            }
+        if let Some(ctx) = context
+            && ctx.has_any_context()
+        {
+            prompt.push_str("\n--- Context ---\n");
+            prompt.push_str(&ctx.format_for_prompt());
         }
 
         prompt.push_str(
@@ -240,10 +240,10 @@ impl AgentOrchestrator {
             {
                 continue;
             }
-            let after_num = trimmed.splitn(2, '.').nth(1).unwrap_or("").trim();
-            let (action_part, rest) = if let Some(idx) = after_num.find(']') {
+            let after_num = trimmed.split_once('.').map(|x| x.1).unwrap_or("").trim();
+            let (action_part, rest) = if after_num.contains(']') {
                 let inside = after_num.trim_start_matches('[').split(']').next().unwrap_or("Edit");
-                let after = after_num.splitn(2, ']').nth(1).unwrap_or("").trim();
+                let after = after_num.split_once(']').map(|x| x.1).unwrap_or("").trim();
                 (inside, after)
             } else {
                 ("Edit", after_num)

@@ -34,11 +34,11 @@ pub fn collect_context(
         builder = builder.add_active_file(path, file_content, token_est);
 
         // Surrounding context as a separate item
-        if let Some(ref surrounding) = spec.surrounding_context {
-            if !surrounding.is_empty() {
-                let est = token_estimate(surrounding);
-                builder = builder.add_selection("surrounding code", surrounding, est);
-            }
+        if let Some(ref surrounding) = spec.surrounding_context
+            && !surrounding.is_empty()
+        {
+            let est = token_estimate(surrounding);
+            builder = builder.add_selection("surrounding code", surrounding, est);
         }
     }
 

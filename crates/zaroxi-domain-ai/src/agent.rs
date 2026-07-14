@@ -164,6 +164,12 @@ pub struct AgentSession {
     pub user_prompted: bool,
 }
 
+impl Default for AgentSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentSession {
     pub fn new() -> Self {
         Self {
@@ -208,7 +214,6 @@ impl AgentSession {
     pub fn step_executed(&mut self, result: StepResult) {
         let summary = result.summary.clone();
         if let Some(ref mut plan) = self.plan {
-            let step_idx = plan.current_step_index();
             for step in &mut plan.steps {
                 if !step.executed {
                     step.executed = true;

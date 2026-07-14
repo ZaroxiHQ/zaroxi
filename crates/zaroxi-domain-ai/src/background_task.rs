@@ -7,7 +7,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::actions::ActionKind;
-use crate::agent::AgentSession;
 
 /// Possible statuses of a background task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

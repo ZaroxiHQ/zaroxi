@@ -74,24 +74,13 @@ pub struct TelemetryPreference {
 
 /// The aggregate settings model — the single source of truth for all user-
 /// facing preferences that affect app behaviour.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Settings {
     pub theme: ThemePreference,
     pub font: FontPreference,
     pub telemetry: TelemetryPreference,
     /// AI provider and model configuration.
     pub ai: AiSettings,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            theme: ThemePreference::default(),
-            font: FontPreference::default(),
-            telemetry: TelemetryPreference::default(),
-            ai: AiSettings::default(),
-        }
-    }
 }
 
 /// AI-related user settings.

@@ -155,12 +155,12 @@ impl ProviderConfig {
 
     /// Resolve the effective auth method.
     pub fn resolve_auth(&mut self) {
-        if let Some(env_name) = self.kind.env_key_name() {
-            if std::env::var(env_name).is_ok() {
-                self.auth_method =
-                    AuthMethod::ApiKey { source: ApiKeySource::EnvVar(env_name.to_string()) };
-                return;
-            }
+        if let Some(env_name) = self.kind.env_key_name()
+            && std::env::var(env_name).is_ok()
+        {
+            self.auth_method =
+                AuthMethod::ApiKey { source: ApiKeySource::EnvVar(env_name.to_string()) };
+            return;
         }
         if self.api_key.is_some() {
             self.auth_method = AuthMethod::ApiKey { source: ApiKeySource::ConfigStored };

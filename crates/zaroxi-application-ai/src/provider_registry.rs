@@ -11,6 +11,12 @@ pub struct ProviderRegistry {
     settings: Mutex<AiProviderSettings>,
 }
 
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProviderRegistry {
     pub fn new() -> Self {
         Self { settings: Mutex::new(AiProviderSettings::default()) }

@@ -125,6 +125,12 @@ pub struct EditFlow {
     pub preview_ok: bool,
 }
 
+impl Default for EditFlow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EditFlow {
     pub fn new() -> Self {
         Self {
