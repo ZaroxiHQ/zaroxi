@@ -124,10 +124,54 @@ pub fn diagnostics_content_view(
     if hints > 0 {
         lines.push(format!("• {} hint(s)", hints));
     }
-    // Individual diagnostic messages when available.
     for dl in detail_lines.iter().take(5) {
         lines.push(format!("  {}", dl));
     }
     let subtitle = format!("Diagnostics for {}", buffer_display);
     ContentView::new("Problems", &subtitle, lines)
+}
+
+/// Build a `ContentView` for a refactor action result.
+pub fn refactor_content_view(result: &str, target_buffer: &str) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Refactor: {}", target_buffer),
+        kind: Some("refactor".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Proposed,
+        summary: String::new(),
+        body_lines: result.lines().map(|l| l.to_string()).collect(),
+        action_labels: vec!["Accept".into(), "Reject".into(), "Edit".into()],
+    };
+    into_content_view(&content)
+}
+
+/// Build a `ContentView` for a test generation result.
+pub fn testgen_content_view(result: &str, target_buffer: &str) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Tests for: {}", target_buffer),
+        kind: Some("testgen".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Proposed,
+        summary: String::new(),
+        body_lines: result.lines().map(|l| l.to_string()).collect(),
+        action_labels: vec!["Accept".into(), "Reject".into()],
+    };
+    into_content_view(&content)
+}
+
+/// Build a `ContentView` for fix-diagnostics results.
+pub fn fix_diagnostics_content_view(result: &str, target_buffer: &str) -> ContentView {
+    let content = AiPanelContent {
+        title: "Assistant".into(),
+        subtitle: format!("Fix: {}", target_buffer),
+        kind: Some("fix_diagnostics".into()),
+        target_buffer: Some(target_buffer.to_string()),
+        state: zaroxi_domain_ai::panel::AiPanelState::Proposed,
+        summary: String::new(),
+        body_lines: result.lines().map(|l| l.to_string()).collect(),
+        action_labels: vec!["Accept".into(), "Reject".into(), "Edit".into()],
+    };
+    into_content_view(&content)
 }

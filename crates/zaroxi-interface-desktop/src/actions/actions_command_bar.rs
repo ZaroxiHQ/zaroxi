@@ -114,6 +114,16 @@ async fn execute_ai_command(
                 refreshed: false,
             })
         }
+        "Explain selection" | "Refactor selection" | "Generate tests" | "Fix diagnostics" => {
+            // Phase 2: these actions use the existing AI review pipeline.
+            // Future phases will add action-specific prompt routing via ActionService.
+            request_ai_edit_active(comp, view, session_id, service).await?;
+            Ok(ActionResult {
+                success: true,
+                message: Some(format!("{label} requested")),
+                refreshed: true,
+            })
+        }
         _ => Ok(ActionResult {
             success: false,
             message: Some(format!("unsupported AI command: {}", label)),

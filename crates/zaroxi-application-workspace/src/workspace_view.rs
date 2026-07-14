@@ -229,7 +229,11 @@ pub fn command_bar_labels() -> Vec<String> {
         "Open buffer".into(),
         "Set active buffer".into(),
         "Explain active buffer".into(),
+        "Explain selection".into(),
         "AI review active buffer".into(),
+        "Refactor selection".into(),
+        "Generate tests".into(),
+        "Fix diagnostics".into(),
         "Apply AI proposal".into(),
         "Reject AI proposal".into(),
         "Request close active".into(),
@@ -743,6 +747,10 @@ pub async fn execute_command_by_index<C: CommandBarContext + CloseContext + Refr
         "AI review active buffer"
         | "Apply AI proposal"
         | "Reject AI proposal"
+        | "Explain selection"
+        | "Refactor selection"
+        | "Generate tests"
+        | "Fix diagnostics"
         | "Open workspace by path" => Ok(ActionResult {
             success: false,
             message: Some("delegate".to_string()),
