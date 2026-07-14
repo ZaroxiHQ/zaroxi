@@ -3,10 +3,13 @@
 //! This crate provides pure domain data structures and logic for the AI side
 //! of Zaroxi Studio. No transport, rendering, or persistence concerns live here.
 pub mod actions;
+pub mod agent;
+pub mod background_task;
 pub mod context;
 pub mod context_ide;
 pub mod conversation;
 pub mod diff;
+pub mod edit_flow;
 pub mod mcp;
 pub mod mcp_jsonrpc;
 pub mod mcp_stdio;
@@ -21,6 +24,8 @@ pub mod types;
 /// Prelude for convenient imports.
 pub mod prelude {
     pub use super::actions::*;
+    pub use super::agent::*;
+    pub use super::background_task::*;
     pub use super::context::*;
     pub use super::context_ide::*;
     pub use super::conversation::*;
