@@ -59,7 +59,7 @@ wgpu = { workspace = true }
 taffy = { workspace = true }
 once_cell = { workspace = true }
 minifb = "0.28.0"
-pollster = "0.3"
+pollster = "0.4"
 rfd = "0.15"
 bytemuck = "1.25.0"
 zaroxi-core-editor-largefile = { path = "../zaroxi-core-editor-largefile" }
