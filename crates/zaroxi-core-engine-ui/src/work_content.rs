@@ -136,6 +136,12 @@ pub struct ShellWorkContent {
     /// State-aware placeholder text for the AI prompt composer. `None` falls
     /// back to a generic prompt hint.
     pub ai_composer_placeholder: Option<String>,
+    /// When `true`, an AI edit proposal is awaiting explicit review; the
+    /// panel actions row hosts Apply / Reject instead of quick actions.
+    pub ai_has_pending_proposal: bool,
+    /// When `true`, the AI quick-action buttons (Explain / Refactor / Tests /
+    /// Fix) are available (provider ready + an active file to act on).
+    pub ai_quick_actions: bool,
     /// Per-line syntax highlight spans for the editor content.
     pub syntax_highlights: Option<SyntaxHighlights>,
 }
@@ -168,6 +174,8 @@ impl ShellWorkContent {
             ai_panel_content: None,
             ai_show_setup_cta: false,
             ai_composer_placeholder: None,
+            ai_has_pending_proposal: false,
+            ai_quick_actions: false,
             syntax_highlights: None,
             editor_non_file_tabs: None,
             active_tab_index: None,

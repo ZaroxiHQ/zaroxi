@@ -120,6 +120,32 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             app.invalidate(super::InvalidationFlags::content());
             return None;
         }
+        // ── AI panel: quick actions (Explain / Refactor / Tests / Fix) ──
+        WidgetId::Button { index: lc::BTN_ID_AI_EXPLAIN } => {
+            app.ai_run_quick_action(super::ai_chat::AiQuickAction::Explain);
+            return None;
+        }
+        WidgetId::Button { index: lc::BTN_ID_AI_REFACTOR } => {
+            app.ai_run_quick_action(super::ai_chat::AiQuickAction::Refactor);
+            return None;
+        }
+        WidgetId::Button { index: lc::BTN_ID_AI_TESTS } => {
+            app.ai_run_quick_action(super::ai_chat::AiQuickAction::GenerateTests);
+            return None;
+        }
+        WidgetId::Button { index: lc::BTN_ID_AI_FIX } => {
+            app.ai_run_quick_action(super::ai_chat::AiQuickAction::FixDiagnostics);
+            return None;
+        }
+        // ── AI panel: edit approval (never auto-applied) ──
+        WidgetId::Button { index: lc::BTN_ID_AI_APPLY } => {
+            app.ai_apply_proposal();
+            return None;
+        }
+        WidgetId::Button { index: lc::BTN_ID_AI_REJECT } => {
+            app.ai_reject_proposal();
+            return None;
+        }
         _ => {}
     }
 
@@ -132,15 +158,6 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
         WidgetId::Button { index: lc::BTN_ID_TERMINAL_CLOSE } => Some(comp.build_work_content()),
         WidgetId::Button { index: lc::BTN_ID_AI_CLOSE } => {
             pollster::block_on(crate::actions::close_command_bar(comp)).ok();
-            Some(comp.build_work_content())
-        }
-        WidgetId::Button { index }
-            if *index == lc::BTN_ID_AI_EXPLAIN
-                || *index == lc::BTN_ID_AI_REVIEW
-                || *index == lc::BTN_ID_AI_APPLY
-                || *index == lc::BTN_ID_AI_REJECT =>
-        {
-            let _ = service;
             Some(comp.build_work_content())
         }
         WidgetId::TextInput { .. } => None,
@@ -510,6 +527,8 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                     ai_panel_content: None,
                     ai_show_setup_cta: false,
                     ai_composer_placeholder: None,
+                    ai_has_pending_proposal: false,
+                    ai_quick_actions: false,
                     syntax_highlights: None,
                     editor_non_file_tabs: None,
                     active_tab_index: None,

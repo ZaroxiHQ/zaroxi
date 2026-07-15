@@ -232,6 +232,12 @@ pub const AI_COMPOSER_H: f32 = 52.0;
 pub const AI_SEND_SIZE: f32 = 30.0;
 /// Width of the session-control buttons (New chat / Clear).
 pub const AI_SESSION_BTN_W: f32 = 76.0;
+/// Width of the quick-action buttons (Explain / Refactor / Tests / Fix).
+pub const AI_QUICK_BTN_W: f32 = 58.0;
+/// Gap between quick-action buttons.
+pub const AI_QUICK_BTN_GAP: f32 = 6.0;
+/// Width of the approval buttons (Apply / Reject).
+pub const AI_APPROVAL_BTN_W: f32 = 84.0;
 /// Width/height of the provider setup CTA button in the empty state.
 pub const AI_SETUP_CTA_W: f32 = 132.0;
 pub const AI_SETUP_CTA_H: f32 = 26.0;
@@ -264,6 +270,15 @@ pub fn ai_controls_row_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f3
         (w - AI_PANEL_PAD * 2.0).max(0.0),
         AI_CONTROLS_ROW_H,
     )
+}
+
+/// Actions row rect (below the session controls row). Hosts either the
+/// quick-action buttons or, when an edit proposal is pending review, the
+/// Apply / Reject approval buttons — the two are mutually exclusive.
+pub fn ai_actions_row_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, h) = content;
+    let (_cx, cy, _cw, ch) = ai_controls_row_rect((x, y, w, h));
+    (x + AI_PANEL_PAD, cy + ch + AI_ROW_GAP, (w - AI_PANEL_PAD * 2.0).max(0.0), AI_CONTROLS_ROW_H)
 }
 
 /// Provider setup CTA rect shown in the not-configured empty state.
@@ -305,6 +320,9 @@ pub const BTN_ID_AI_REJECT: usize = 23;
 pub const BTN_ID_AI_NEW_CHAT: usize = 24;
 pub const BTN_ID_AI_CLEAR: usize = 25;
 pub const BTN_ID_AI_SETUP_PROVIDER: usize = 26;
+pub const BTN_ID_AI_REFACTOR: usize = 27;
+pub const BTN_ID_AI_TESTS: usize = 28;
+pub const BTN_ID_AI_FIX: usize = 29;
 pub const BTN_ID_EXPLORER_CTA: usize = 30;
 
 /// Base `WidgetId::Tab` index for the bottom-panel tabs (Terminal / Problems /

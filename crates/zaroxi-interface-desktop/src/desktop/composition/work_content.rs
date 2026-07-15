@@ -109,6 +109,12 @@ impl DesktopComposition {
         shell_wc.explorer_empty_message = explorer_empty_message;
         shell_wc.explorer_search_query = self.explorer_search_query.clone();
         shell_wc.explorer_has_workspace = self.workspace_root_path.is_some();
+        // An edit proposal awaiting explicit review switches the AI panel
+        // actions row to Apply / Reject (never applied without approval).
+        shell_wc.ai_has_pending_proposal = self
+            .latest_metadata()
+            .and_then(|md| md.ai_projection)
+            .is_some_and(|p| matches!(p.state, Some(super::AiState::Proposed)));
 
         shell_wc
     }

@@ -231,6 +231,58 @@ mod tests {
     }
 
     #[test]
+    fn ai_panel_shows_quick_actions_when_enabled() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent { ai_quick_actions: true, ..Default::default() };
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        for idx in
+            [lc::BTN_ID_AI_EXPLAIN, lc::BTN_ID_AI_REFACTOR, lc::BTN_ID_AI_TESTS, lc::BTN_ID_AI_FIX]
+        {
+            assert!(find_button(&tree, idx).is_some(), "quick action {idx} must be present");
+        }
+        assert!(find_button(&tree, lc::BTN_ID_AI_APPLY).is_none());
+        assert!(find_button(&tree, lc::BTN_ID_AI_REJECT).is_none());
+    }
+
+    #[test]
+    fn ai_panel_pending_proposal_shows_approval_and_hides_quick_actions() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent {
+            ai_quick_actions: true,
+            ai_has_pending_proposal: true,
+            ..Default::default()
+        };
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_APPLY).is_some(),
+            "Apply must be present during proposal review"
+        );
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_REJECT).is_some(),
+            "Reject must be present during proposal review"
+        );
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_EXPLAIN).is_none(),
+            "quick actions must be hidden during proposal review"
+        );
+    }
+
+    #[test]
+    fn ai_panel_hides_quick_actions_when_disabled() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent::default();
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        assert!(find_button(&tree, lc::BTN_ID_AI_EXPLAIN).is_none());
+        assert!(find_button(&tree, lc::BTN_ID_AI_APPLY).is_none());
+    }
+
+    #[test]
     fn ai_composer_input_is_bottom_anchored_with_state_placeholder() {
         let layout = ShellLayout::from_window_size(1200, 800);
         let tokens = test_tokens_dark();

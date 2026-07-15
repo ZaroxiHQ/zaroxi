@@ -4,8 +4,18 @@ use zaroxi_domain_ai::conversation::{ChatRole, Conversation, ConversationStatus}
 use zaroxi_domain_settings::AiSettings;
 
 use super::super::ai_pane::{
-    AiPanelData, ChatMessageUi, ContextChip, MessageRole, ProviderUiStatus,
+    AiPanelData, ApprovalBannerUi, ChatMessageUi, ContextChip, MessageRole, ProviderUiStatus,
 };
+
+/// A pending edit proposal, as sourced from the live AI projection.
+pub struct PendingProposalSource<'a> {
+    /// Target buffer identity the proposal would modify.
+    pub target: &'a str,
+    /// Full proposed text.
+    pub proposal_text: &'a str,
+    /// Current text of the target buffer (for the diff summary), when known.
+    pub original_text: Option<&'a str>,
+}
 
 /// All real application state the AI panel is shaped from.
 ///
@@ -36,6 +46,8 @@ pub struct AiPanelSources<'a> {
     pub composer_text: &'a str,
     /// Whether the composer holds keyboard focus.
     pub composer_focused: bool,
+    /// Pending edit proposal awaiting explicit review, if any.
+    pub pending_proposal: Option<PendingProposalSource<'a>>,
 }
 
 /// Derive the provider status shown in the panel status row.
@@ -131,6 +143,26 @@ pub fn conversation_is_busy(conv: &Conversation) -> bool {
     matches!(conv.status, ConversationStatus::Sending | ConversationStatus::Streaming)
 }
 
+/// Build the approval banner for a pending edit proposal, including a compact
+/// truthful diff summary derived from the domain diff engine.
+pub fn approval_from_proposal(src: &PendingProposalSource<'_>) -> ApprovalBannerUi {
+    let new_lines = src.proposal_text.lines().count();
+    let summary = match src.original_text {
+        Some(original) => {
+            let old_lines = original.lines().count();
+            let changes = zaroxi_domain_ai::diff::compute_diff(original, src.proposal_text);
+            let regions = changes.len();
+            let noun = if regions == 1 { "changed region" } else { "changed regions" };
+            format!("{old_lines} \u{2192} {new_lines} lines \u{00b7} {regions} {noun}")
+        }
+        None => {
+            let noun = if new_lines == 1 { "line" } else { "lines" };
+            format!("{new_lines} {noun} proposed")
+        }
+    };
+    ApprovalBannerUi { target: src.target.to_string(), summary }
+}
+
 /// Compact conversation summary for the panel subtitle
 /// (e.g. `"New Chat \u{00b7} 3 messages"`). `None` when the chat is empty.
 pub fn conversation_subtitle(conv: &Conversation) -> Option<String> {
@@ -193,6 +225,9 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
         src.workspace_name,
     );
     let messages = src.conversation.map(messages_from_conversation).unwrap_or_default();
+    let approval = src.pending_proposal.as_ref().map(approval_from_proposal);
+    let show_quick_actions =
+        !show_setup_cta && src.active_file.is_some() && approval.is_none() && !is_loading;
 
     let mut data = AiPanelData {
         ai_content,
@@ -207,6 +242,8 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
         composer_focused: src.composer_focused,
         show_setup_cta,
         show_session_controls: !show_setup_cta,
+        show_quick_actions,
+        approval,
     };
 
     // Subtitle priority: panel content subtitle → conversation summary →
@@ -343,6 +380,7 @@ mod tests {
             workspace_name: None,
             composer_text: "",
             composer_focused: false,
+            pending_proposal: None,
         });
         assert!(!data.show_setup_cta);
         assert!(data.show_session_controls);
@@ -361,6 +399,7 @@ mod tests {
             workspace_name: None,
             composer_text: "",
             composer_focused: false,
+            pending_proposal: None,
         });
         assert!(data.show_setup_cta);
         assert!(!data.show_session_controls);
@@ -434,7 +473,69 @@ mod tests {
             workspace_name: None,
             composer_text: "",
             composer_focused: false,
+            pending_proposal: None,
         });
         assert!(data.is_loading, "sending conversation must show loading state");
+    }
+
+    #[test]
+    fn approval_summary_reports_line_delta_and_regions() {
+        let src = PendingProposalSource {
+            target: "main.rs",
+            proposal_text: "a\nb\nc\nd",
+            original_text: Some("a\nb\nc"),
+        };
+        let banner = approval_from_proposal(&src);
+        assert_eq!(banner.target, "main.rs");
+        assert!(banner.summary.starts_with("3 \u{2192} 4 lines"), "got: {}", banner.summary);
+        assert!(banner.summary.contains("changed region"), "got: {}", banner.summary);
+    }
+
+    #[test]
+    fn approval_summary_without_original_reports_proposed_lines() {
+        let src = PendingProposalSource {
+            target: "lib.rs",
+            proposal_text: "one\ntwo",
+            original_text: None,
+        };
+        let banner = approval_from_proposal(&src);
+        assert_eq!(banner.summary, "2 lines proposed");
+    }
+
+    #[test]
+    fn quick_actions_require_active_file_and_no_pending_proposal() {
+        let session = AiSessionState::default();
+        let ai = settings();
+
+        let base = |active_file: Option<&'static str>,
+                    proposal: Option<PendingProposalSource<'static>>| {
+            shape_ai_panel(AiPanelSources {
+                work_content: &None,
+                ai_settings: &ai,
+                backend_available: true,
+                session: &session,
+                provider_override: None,
+                active_file,
+                conversation: None,
+                selection_lines: None,
+                workspace_name: None,
+                composer_text: "",
+                composer_focused: false,
+                pending_proposal: proposal,
+            })
+        };
+
+        assert!(!base(None, None).show_quick_actions, "no active file → no quick actions");
+        assert!(base(Some("buf:a.rs"), None).show_quick_actions);
+
+        let with_proposal = base(
+            Some("buf:a.rs"),
+            Some(PendingProposalSource { target: "a.rs", proposal_text: "x", original_text: None }),
+        );
+        assert!(
+            !with_proposal.show_quick_actions,
+            "pending proposal must replace quick actions with approval"
+        );
+        assert!(with_proposal.approval.is_some(), "approval banner must be present");
     }
 }

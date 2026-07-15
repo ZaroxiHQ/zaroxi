@@ -12,6 +12,29 @@ use super::InvalidationFlags;
 use crate::gui::window::ai_pane::ProviderUiStatus;
 use crate::gui::window::presenters::ai_presenter;
 
+/// Quick actions exposed as buttons in the AI panel actions row.
+///
+/// All of them route through the existing AI edit/review pipeline; the
+/// label is recorded in the conversation so the request trail stays visible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiQuickAction {
+    Explain,
+    Refactor,
+    GenerateTests,
+    FixDiagnostics,
+}
+
+impl AiQuickAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Explain => "Explain the active file",
+            Self::Refactor => "Refactor the active file",
+            Self::GenerateTests => "Generate tests for the active file",
+            Self::FixDiagnostics => "Fix diagnostics in the active file",
+        }
+    }
+}
+
 impl GuiApp {
     /// Whether the composer can currently send a prompt: a provider is
     /// available and no request is in flight.
@@ -37,8 +60,22 @@ impl GuiApp {
         if text.is_empty() || !self.ai_composer_ready() {
             return;
         }
-        self.ai_chat.send_message(&text);
         self.ai_composer_text.clear();
+        self.ai_dispatch_request(&text);
+    }
+
+    /// Run a quick action (Explain / Refactor / Tests / Fix) against the
+    /// active file through the same pipeline as a typed prompt.
+    pub fn ai_run_quick_action(&mut self, action: AiQuickAction) {
+        if !self.ai_composer_ready() {
+            return;
+        }
+        self.ai_dispatch_request(action.label());
+    }
+
+    /// Record `text` as a user message and drive one AI request round-trip.
+    fn ai_dispatch_request(&mut self, text: &str) {
+        self.ai_chat.send_message(text);
 
         let backend = match (
             self.composition.as_mut(),
@@ -83,6 +120,72 @@ impl GuiApp {
                 self.ai_chat.set_error("Assistant backend is not available in this session.");
             }
         }
+        self.invalidate(InvalidationFlags::content());
+    }
+
+    /// Apply the pending edit proposal to the target buffer.
+    ///
+    /// Only valid while a proposal is awaiting review; the result is recorded
+    /// in the conversation so the approval decision stays auditable.
+    pub fn ai_apply_proposal(&mut self) {
+        let backend = match (
+            self.composition.as_mut(),
+            self.workspace_view.as_ref(),
+            self.workspace_service.as_ref(),
+            self.session_id.as_ref(),
+        ) {
+            (Some(comp), Some(view), Some(service), Some(session)) => {
+                Some((comp, view.clone(), service.clone(), session.clone()))
+            }
+            _ => None,
+        };
+        let workspace_id = self.workspace_id;
+
+        match backend {
+            Some((comp, view, service, session)) => {
+                let target = comp
+                    .latest_ai_projection()
+                    .and_then(|p| p.target_buffer.map(|b| b.to_string()))
+                    .unwrap_or_else(|| "buffer".to_string());
+                let result = pollster::block_on(crate::desktop::apply_ai_edit_active(
+                    comp,
+                    view,
+                    session,
+                    workspace_id,
+                    service,
+                ));
+                match result {
+                    Ok(()) => {
+                        self.ai_chat.active_conversation_mut().active_conversation.add_message(
+                            zaroxi_domain_ai::conversation::ChatMessage::system(format!(
+                                "Edit applied to {target}."
+                            )),
+                        );
+                        self.work_content = Some(comp.build_work_content());
+                    }
+                    Err(e) => {
+                        self.ai_chat.set_error(&format!("Apply failed: {e}"));
+                    }
+                }
+            }
+            None => {
+                self.ai_chat.set_error("Cannot apply: assistant backend is not available.");
+            }
+        }
+        self.invalidate(InvalidationFlags::content());
+    }
+
+    /// Reject the pending edit proposal. Nothing is written to the buffer.
+    pub fn ai_reject_proposal(&mut self) {
+        let service = self.workspace_service.clone();
+        let session = self.session_id.clone();
+        if let Some(comp) = self.composition.as_mut() {
+            crate::desktop::cancel_ai_edit_active(comp, service, session);
+            self.work_content = Some(comp.build_work_content());
+        }
+        self.ai_chat.active_conversation_mut().active_conversation.add_message(
+            zaroxi_domain_ai::conversation::ChatMessage::system("Proposal rejected.".to_string()),
+        );
         self.invalidate(InvalidationFlags::content());
     }
 

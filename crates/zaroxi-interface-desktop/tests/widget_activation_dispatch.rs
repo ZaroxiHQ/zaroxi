@@ -383,4 +383,60 @@ mod tests {
         app.ai_send_prompt();
         assert!(app.ai_chat.active_conversation().messages.is_empty());
     }
+
+    #[test]
+    fn ai_quick_action_records_user_message_and_truthful_error() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+        use zaroxi_interface_desktop::gui::window::ProviderUiStatus;
+
+        let mut app = make_test_app();
+        app.ai_provider_status =
+            Some(ProviderUiStatus::Connected { provider: "OpenAI".into(), model: String::new() });
+
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_EXPLAIN });
+
+        let conv = app.ai_chat.active_conversation();
+        assert_eq!(conv.messages[0].content, "Explain the active file");
+        assert_eq!(
+            conv.status,
+            zaroxi_domain_ai::conversation::ConversationStatus::Error,
+            "no backend wired: quick action must surface a truthful error"
+        );
+    }
+
+    #[test]
+    fn ai_quick_action_is_gated_on_provider_readiness() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        // No provider override, no backend → not ready.
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_TESTS });
+        assert!(
+            app.ai_chat.active_conversation().messages.is_empty(),
+            "quick actions must be inert when the provider is not ready"
+        );
+    }
+
+    #[test]
+    fn ai_apply_without_backend_reports_truthful_error() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_APPLY });
+
+        let conv = app.ai_chat.active_conversation();
+        assert_eq!(conv.status, zaroxi_domain_ai::conversation::ConversationStatus::Error);
+        assert!(conv.last_error.as_deref().unwrap_or("").contains("Cannot apply"));
+    }
+
+    #[test]
+    fn ai_reject_records_decision_in_conversation() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_REJECT });
+
+        let conv = app.ai_chat.active_conversation();
+        assert_eq!(conv.messages.last().unwrap().content, "Proposal rejected.");
+    }
 }

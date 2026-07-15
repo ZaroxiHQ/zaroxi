@@ -51,6 +51,18 @@ pub struct ContextChip {
     pub detail: String,
 }
 
+/// Approval banner state for a pending edit proposal.
+///
+/// Only present while a proposal awaits explicit review — edits are never
+/// applied without the user pressing Apply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalBannerUi {
+    /// Target buffer the proposal would modify.
+    pub target: String,
+    /// Compact diff summary (e.g. `"12 → 15 lines · 1 changed region"`).
+    pub summary: String,
+}
+
 /// Normalized AI panel view state (shaped by the AI presenter).
 #[derive(Default)]
 pub struct AiPanelData {
@@ -76,6 +88,10 @@ pub struct AiPanelData {
     pub show_setup_cta: bool,
     /// Show the session controls row (New chat / Clear).
     pub show_session_controls: bool,
+    /// Show the quick-action buttons (Explain / Refactor / Tests / Fix).
+    pub show_quick_actions: bool,
+    /// Pending edit proposal awaiting explicit review.
+    pub approval: Option<ApprovalBannerUi>,
 }
 
 pub struct AiPanel;
@@ -197,7 +213,83 @@ impl AiPanel {
         }
 
         let (_, controls_y, _, controls_h) = lc::ai_controls_row_rect(content);
-        let body_top = controls_y + controls_h + lc::AI_ROW_GAP * 2.0;
+        let mut body_top = controls_y + controls_h + lc::AI_ROW_GAP * 2.0;
+
+        // ── Actions row: approval takes priority over quick actions ──
+        let (actions_x, actions_y, _actions_w, actions_h) = lc::ai_actions_row_rect(content);
+        if data.show_session_controls && data.approval.is_some() {
+            // Apply / Reject buttons aligned with the widget-tree hit targets.
+            blocks.push(UiBlock {
+                id: format!("{}.approval_apply", r.id),
+                title: "Apply".to_string(),
+                rect: Rect { x: actions_x, y: actions_y, w: lc::AI_APPROVAL_BTN_W, h: actions_h },
+                header_only: true,
+                header_color: Some(tokens.accent.to_array()),
+                text_color: Some(tokens.text_primary.to_array()),
+                corner_radius: 4.0,
+                ..Default::default()
+            });
+            blocks.push(UiBlock {
+                id: format!("{}.approval_reject", r.id),
+                title: "Reject".to_string(),
+                rect: Rect {
+                    x: actions_x + lc::AI_APPROVAL_BTN_W + 8.0,
+                    y: actions_y,
+                    w: lc::AI_APPROVAL_BTN_W,
+                    h: actions_h,
+                },
+                header_only: true,
+                header_color: Some(tokens.sidebar_input.to_array()),
+                text_color: Some(tokens.text_secondary.to_array()),
+                corner_radius: 4.0,
+                border_color: Some(tokens.divider_subtle.to_array()),
+                border_width: 1.0,
+                ..Default::default()
+            });
+            body_top = actions_y + actions_h + lc::AI_ROW_GAP;
+
+            // Approval banner: explicit review state, target, diff summary.
+            if let Some(approval) = &data.approval {
+                let banner_h = 40.0;
+                blocks.push(UiBlock {
+                    id: format!("{}.approval_banner", r.id),
+                    title: format!("Review proposed edit \u{2192} {}", approval.target),
+                    content: approval.summary.clone(),
+                    rect: Rect {
+                        x: rx + lc::AI_PANEL_PAD,
+                        y: body_top,
+                        w: rw - lc::AI_PANEL_PAD * 2.0,
+                        h: banner_h,
+                    },
+                    header_color: Some(body_bg),
+                    content_color: Some(body_bg),
+                    text_color: Some(tokens.text_primary.to_array()),
+                    border_color: Some(tokens.accent.to_array()),
+                    border_width: 1.0,
+                    corner_radius: 4.0,
+                    ..Default::default()
+                });
+                body_top += banner_h + lc::AI_ROW_GAP;
+            }
+        } else if data.show_session_controls && data.show_quick_actions {
+            let mut bx = actions_x;
+            for label in ["Explain", "Refactor", "Tests", "Fix"] {
+                blocks.push(UiBlock {
+                    id: format!("{}.quick_{}", r.id, label.to_lowercase()),
+                    title: label.to_string(),
+                    rect: Rect { x: bx, y: actions_y, w: lc::AI_QUICK_BTN_W, h: actions_h },
+                    header_only: true,
+                    header_color: Some(tokens.sidebar_input.to_array()),
+                    text_color: Some(tokens.text_secondary.to_array()),
+                    corner_radius: 4.0,
+                    border_color: Some(tokens.divider_subtle.to_array()),
+                    border_width: 1.0,
+                    ..Default::default()
+                });
+                bx += lc::AI_QUICK_BTN_W + lc::AI_QUICK_BTN_GAP;
+            }
+            body_top = actions_y + actions_h + lc::AI_ROW_GAP;
+        }
 
         // ── Empty states ──
         if data.ai_content.is_none() && data.messages.is_empty() {
@@ -278,6 +370,48 @@ impl AiPanel {
         let mut msg_y = body_top;
         // Approximate monospace character budget for wrapping message text.
         let wrap_cols = (((rw - 32.0) / 7.0) as usize).max(16);
+
+        // ── Result / proposal preview card ──
+        // Shows the projection content (proposal preview, analysis output,
+        // diagnostics summary) when it is not already covered by the chat:
+        // always during proposal review, otherwise only without messages.
+        if let Some(ai_content) = &data.ai_content
+            && (data.approval.is_some() || data.messages.is_empty())
+            && !ai_content.trim().is_empty()
+        {
+            const MAX_PREVIEW_LINES: usize = 10;
+            let wrapped = wrap_message(ai_content, wrap_cols);
+            let all_lines: Vec<&str> = wrapped.lines().collect();
+            let shown = all_lines.len().min(MAX_PREVIEW_LINES);
+            let mut preview = all_lines[..shown].join("\n");
+            if all_lines.len() > shown {
+                preview.push_str(&format!("\n\u{2026} (+{} more lines)", all_lines.len() - shown));
+            }
+            let preview_lines = preview.lines().count() as f32;
+            let card_h = preview_lines * 16.0 + 24.0;
+            let card_title = data.ai_title.clone().unwrap_or_else(|| "Assistant".to_string());
+
+            blocks.push(UiBlock {
+                id: format!("{}.result_card", r.id),
+                title: card_title,
+                content: preview,
+                rect: Rect {
+                    x: rx + lc::AI_PANEL_PAD,
+                    y: msg_y,
+                    w: rw - lc::AI_PANEL_PAD * 2.0,
+                    h: card_h,
+                },
+                header_color: Some(tokens.sidebar_input.to_array()),
+                content_color: Some(tokens.sidebar_input.to_array()),
+                text_color: Some(tokens.text_secondary.to_array()),
+                border_color: Some(tokens.divider_subtle.to_array()),
+                border_width: 1.0,
+                corner_radius: 4.0,
+                ..Default::default()
+            });
+            msg_y += card_h + lc::AI_ROW_GAP * 2.0;
+        }
+
         for msg in &data.messages {
             let role_label = match msg.role {
                 MessageRole::User => "You",

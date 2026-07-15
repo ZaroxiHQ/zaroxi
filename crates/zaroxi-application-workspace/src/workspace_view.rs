@@ -387,6 +387,8 @@ pub fn build_work_content(
         ai_panel_content,
         ai_show_setup_cta: false,
         ai_composer_placeholder: None,
+        ai_has_pending_proposal: false,
+        ai_quick_actions: false,
         syntax_highlights,
         editor_non_file_tabs: None,
         active_tab_index: None,
