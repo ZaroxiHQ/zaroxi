@@ -189,6 +189,38 @@ impl GuiApp {
         self.invalidate(InvalidationFlags::content());
     }
 
+    /// Copy the most recent non-empty assistant response to the clipboard.
+    /// Returns `false` when there is nothing to copy.
+    pub fn ai_copy_last_response(&mut self) -> bool {
+        let conv = self.ai_chat.active_conversation();
+        let last = conv
+            .messages
+            .iter()
+            .rev()
+            .find(|m| {
+                m.role == zaroxi_domain_ai::conversation::ChatRole::Assistant
+                    && !m.content.is_empty()
+            })
+            .map(|m| m.content.clone());
+        match last {
+            Some(text) => {
+                let _ = zaroxi_core_engine_clipboard::copy_text(&text);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Paste clipboard text into the composer at the end of the draft.
+    pub fn ai_composer_paste(&mut self) {
+        if let Ok(text) = zaroxi_core_engine_clipboard::get_text() {
+            // Keep the composer single-line: newlines become spaces.
+            let flat = text.replace(['\r', '\n'], " ");
+            self.ai_composer_text.push_str(&flat);
+            self.invalidate(InvalidationFlags::content());
+        }
+    }
+
     /// Start a new chat: archive the current conversation, reset the live
     /// session state, and clear any pending AI projection.
     pub fn ai_new_chat(&mut self) {

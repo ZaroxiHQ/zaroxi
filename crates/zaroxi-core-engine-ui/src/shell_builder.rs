@@ -488,18 +488,17 @@ pub fn build_shell_widget_tree(
             });
         } else {
             // Session controls row: New chat / Clear.
-            let (rx, ry, _rw, rh) = ai_controls_row_rect(content_rect);
+            let (rx, ry, rw, rh) = ai_controls_row_rect(content_rect);
             for (i, (label, idx)) in
                 [("New chat", BTN_ID_AI_NEW_CHAT), ("Clear", BTN_ID_AI_CLEAR)].iter().enumerate()
             {
+                let bx = rx + i as f32 * (AI_SESSION_BTN_W + 8.0);
+                if bx + AI_SESSION_BTN_W > rx + rw {
+                    break;
+                }
                 tree.push(ShellWidget::Button {
                     id: WidgetId::button(*idx),
-                    rect: Rect::new(
-                        rx + i as f32 * (AI_SESSION_BTN_W + 8.0),
-                        ry,
-                        AI_SESSION_BTN_W,
-                        rh,
-                    ),
+                    rect: Rect::new(bx, ry, AI_SESSION_BTN_W, rh),
                     label: label.to_string(),
                     fill_color: tokens.rail_background.to_array(),
                     state: InteractionState::Normal,
@@ -508,7 +507,7 @@ pub fn build_shell_widget_tree(
 
             // Actions row: pending proposal review takes priority over quick
             // actions — edits are never applied without explicit approval.
-            let (ax, ay, _aw, ah) = ai_actions_row_rect(content_rect);
+            let (ax, ay, aw, ah) = ai_actions_row_rect(content_rect);
             let pending = content.map(|c| c.ai_has_pending_proposal).unwrap_or(false);
             let quick = content.map(|c| c.ai_quick_actions).unwrap_or(false);
             if pending {
@@ -519,13 +518,15 @@ pub fn build_shell_widget_tree(
                     fill_color: tokens.accent.to_array(),
                     state: InteractionState::Normal,
                 });
-                tree.push(ShellWidget::Button {
-                    id: WidgetId::button(BTN_ID_AI_REJECT),
-                    rect: Rect::new(ax + AI_APPROVAL_BTN_W + 8.0, ay, AI_APPROVAL_BTN_W, ah),
-                    label: "Reject".into(),
-                    fill_color: tokens.rail_background.to_array(),
-                    state: InteractionState::Normal,
-                });
+                if ax + AI_APPROVAL_BTN_W * 2.0 + 8.0 <= ax + aw {
+                    tree.push(ShellWidget::Button {
+                        id: WidgetId::button(BTN_ID_AI_REJECT),
+                        rect: Rect::new(ax + AI_APPROVAL_BTN_W + 8.0, ay, AI_APPROVAL_BTN_W, ah),
+                        label: "Reject".into(),
+                        fill_color: tokens.rail_background.to_array(),
+                        state: InteractionState::Normal,
+                    });
+                }
             } else if quick {
                 for (i, (label, idx)) in [
                     ("Explain", BTN_ID_AI_EXPLAIN),
@@ -536,14 +537,13 @@ pub fn build_shell_widget_tree(
                 .iter()
                 .enumerate()
                 {
+                    let bx = ax + i as f32 * (AI_QUICK_BTN_W + AI_QUICK_BTN_GAP);
+                    if bx + AI_QUICK_BTN_W > ax + aw {
+                        break;
+                    }
                     tree.push(ShellWidget::Button {
                         id: WidgetId::button(*idx),
-                        rect: Rect::new(
-                            ax + i as f32 * (AI_QUICK_BTN_W + AI_QUICK_BTN_GAP),
-                            ay,
-                            AI_QUICK_BTN_W,
-                            ah,
-                        ),
+                        rect: Rect::new(bx, ay, AI_QUICK_BTN_W, ah),
                         label: label.to_string(),
                         fill_color: tokens.rail_background.to_array(),
                         state: InteractionState::Normal,

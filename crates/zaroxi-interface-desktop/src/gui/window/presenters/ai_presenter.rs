@@ -262,11 +262,11 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
         activity_line,
     };
 
-    // Subtitle priority: panel content subtitle → conversation summary →
-    // truthful session status.
+    // Subtitle priority: panel content subtitle → conversation summary.
+    // The live session phase is NOT repeated here — the activity footer owns
+    // operational status, so the same fact never appears twice.
     if data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty() {
-        data.ai_subtitle =
-            src.conversation.and_then(conversation_subtitle).or_else(|| src.session.status_label());
+        data.ai_subtitle = src.conversation.and_then(conversation_subtitle);
     }
 
     data

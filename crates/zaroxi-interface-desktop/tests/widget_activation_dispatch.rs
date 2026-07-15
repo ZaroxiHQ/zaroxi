@@ -440,4 +440,16 @@ mod tests {
         let conv = app.ai_chat.active_conversation();
         assert_eq!(conv.messages.last().unwrap().content, "Proposal rejected.");
     }
+
+    #[test]
+    fn ai_copy_last_response_reports_nothing_to_copy() {
+        let mut app = make_test_app();
+        assert!(!app.ai_copy_last_response(), "empty conversation → nothing to copy");
+
+        app.ai_chat.send_message("q");
+        assert!(
+            !app.ai_copy_last_response(),
+            "pending empty assistant reply → still nothing to copy"
+        );
+    }
 }
