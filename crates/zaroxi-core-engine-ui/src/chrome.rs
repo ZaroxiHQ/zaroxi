@@ -144,75 +144,6 @@ pub fn format_tab_strip_spans(tabs: &[TabEntry], tokens: &StyleTokens) -> Vec<(S
 }
 
 // ---------------------------------------------------------------------------
-// AI panel content
-// ---------------------------------------------------------------------------
-
-/// Format AI panel content with a structured header, body, and empty-state
-/// fallback. The title/session line uses primary text; body uses secondary.
-pub fn format_ai_panel_spans(
-    title: Option<&str>,
-    subtitle: Option<&str>,
-    body: Option<&str>,
-    tokens: &StyleTokens,
-) -> Vec<(String, [f32; 4])> {
-    let title_color = tokens.text_primary.to_array();
-    let subtitle_color = tokens.text_muted.to_array();
-    let body_color = tokens.text_secondary.to_array();
-    let faint_color = tokens.text_faint.to_array();
-    let accent_color = tokens.accent.to_array();
-    let section_color = tokens.text_muted.to_array();
-
-    let mut spans: Vec<(String, [f32; 4])> = Vec::new();
-
-    // ── Header: assistant name + a subtle session-state cue ──
-    let t = title.unwrap_or("AI Assistant");
-    spans.push((t.to_string(), title_color));
-
-    let has_session = body.map(|b| !b.trim().is_empty()).unwrap_or(false);
-    match subtitle {
-        Some(sub) => {
-            spans.push(("  \u{2022}  ".to_string(), faint_color));
-            spans.push((sub.to_string(), subtitle_color));
-        }
-        None => {
-            spans.push(("  \u{2022}  ".to_string(), faint_color));
-            spans.push((if has_session { "Active" } else { "Ready" }.to_string(), accent_color));
-        }
-    }
-
-    spans.push(("\n\n".to_string(), faint_color));
-
-    if has_session {
-        // ── Active session: render the conversation/body ──
-        let wrapped = wrap_text(body.unwrap_or(""), 40);
-        spans.push((wrapped, body_color));
-    } else {
-        // ── Idle state: structured product modules, not a bare placeholder ──
-        // Spacing carries the rhythm; section labels give quiet hierarchy.
-        spans.push(("SUGGESTED\n".to_string(), section_color));
-        for action in
-            ["Explain this file", "Refactor selection", "Generate tests", "Review for bugs"]
-        {
-            spans.push(("\u{2022}  ".to_string(), accent_color));
-            spans.push((format!("{action}\n"), body_color));
-        }
-
-        spans.push(("\nRECENT\n".to_string(), section_color));
-        spans.push(("No recent sessions yet\n".to_string(), faint_color));
-
-        spans.push(("\nCONTEXT\n".to_string(), section_color));
-        spans.push((
-            "Open a file to give Zaroxi context for\nedits, reviews, and generation.\n".to_string(),
-            faint_color,
-        ));
-
-        spans.push(("\nAsk anything  \u{2022}  / for commands".to_string(), faint_color));
-    }
-
-    spans
-}
-
-// ---------------------------------------------------------------------------
 // Empty state / panel placeholder
 // ---------------------------------------------------------------------------
 
@@ -240,27 +171,6 @@ pub fn format_panel_header_spans(
     }
 
     spans
-}
-
-fn wrap_text(text: &str, max_chars: usize) -> String {
-    let mut out = String::with_capacity(text.len() + text.len() / max_chars);
-    for line in text.lines() {
-        if out.is_empty() {
-            // first line: no leading newline
-        } else {
-            out.push('\n');
-        }
-        let mut remaining = line;
-        while remaining.len() > max_chars {
-            let split =
-                remaining.char_indices().take(max_chars).last().map(|(i, _)| i + 1).unwrap_or(0);
-            out.push_str(&remaining[..split]);
-            out.push('\n');
-            remaining = &remaining[split..];
-        }
-        out.push_str(remaining);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -319,30 +229,5 @@ mod tests {
         assert_eq!(spans.len(), 3); // tab, sep, tab
         assert!(spans[0].0.contains("main.rs"));
         assert!(spans[2].0.contains("lib.rs"));
-    }
-
-    #[test]
-    fn empty_ai_panel_shows_structured_idle_state() {
-        let spans = format_ai_panel_spans(None, None, None, &test_tokens());
-        let joined: String = spans.iter().map(|s| s.0.as_str()).collect();
-        // Premium idle state: section labels, suggested actions, and a composer hint.
-        assert!(joined.contains("Ready"));
-        assert!(joined.contains("SUGGESTED"));
-        assert!(joined.contains("Explain this file"));
-        assert!(joined.contains("RECENT"));
-        assert!(joined.contains("Ask anything"));
-    }
-
-    #[test]
-    fn active_ai_panel_renders_body() {
-        let spans = format_ai_panel_spans(
-            Some("AI Assistant"),
-            None,
-            Some("Edit applied."),
-            &test_tokens(),
-        );
-        let joined: String = spans.iter().map(|s| s.0.as_str()).collect();
-        assert!(joined.contains("Active"));
-        assert!(joined.contains("Edit applied."));
     }
 }

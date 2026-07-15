@@ -174,4 +174,99 @@ mod tests {
             assert!(d.rect.width > 0.0 || d.rect.height > 0.0, "divider rect must be non-zero");
         }
     }
+
+    // ── AI panel region ──
+
+    use zaroxi_core_engine_style::WidgetId;
+    use zaroxi_core_engine_ui::ShellWorkContent;
+    use zaroxi_core_engine_ui::layout_constants as lc;
+
+    fn find_button(tree: &zaroxi_core_engine_ui::ShellWidgetTree, idx: usize) -> Option<Rect4> {
+        tree.widgets.iter().find_map(|w| match w {
+            ShellWidget::Button { id, rect, .. } if *id == WidgetId::button(idx) => {
+                Some((rect.x, rect.y, rect.width, rect.height))
+            }
+            _ => None,
+        })
+    }
+    type Rect4 = (f32, f32, f32, f32);
+
+    #[test]
+    fn ai_panel_shows_setup_cta_when_no_provider() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent { ai_show_setup_cta: true, ..Default::default() };
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_SETUP_PROVIDER).is_some(),
+            "setup CTA button must be present when no provider is configured"
+        );
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_NEW_CHAT).is_none(),
+            "session controls must be hidden when no provider is configured"
+        );
+        assert!(find_button(&tree, lc::BTN_ID_AI_CLEAR).is_none());
+    }
+
+    #[test]
+    fn ai_panel_shows_session_controls_when_provider_ready() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent::default();
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_NEW_CHAT).is_some(),
+            "New chat button must be present when provider is ready"
+        );
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_CLEAR).is_some(),
+            "Clear button must be present when provider is ready"
+        );
+        assert!(
+            find_button(&tree, lc::BTN_ID_AI_SETUP_PROVIDER).is_none(),
+            "setup CTA must be hidden when provider is ready"
+        );
+    }
+
+    #[test]
+    fn ai_composer_input_is_bottom_anchored_with_state_placeholder() {
+        let layout = ShellLayout::from_window_size(1200, 800);
+        let tokens = test_tokens_dark();
+        let content = ShellWorkContent {
+            ai_composer_placeholder: Some("Waiting for response\u{2026}".into()),
+            ..Default::default()
+        };
+        let tree = build_shell_widget_tree(&layout, &tokens, Some(&content));
+
+        let input = tree.widgets.iter().find_map(|w| match w {
+            ShellWidget::TextInput { id, rect, placeholder, .. }
+                if *id == WidgetId::text_input(0) =>
+            {
+                Some((*rect, placeholder.clone()))
+            }
+            _ => None,
+        });
+        let (rect, placeholder) = input.expect("AI composer text input must exist");
+        assert_eq!(placeholder, "Waiting for response\u{2026}");
+
+        // Bottom-anchored: input must sit in the lower half of the AI panel
+        // and match the shared composer geometry helper.
+        let content_rect = (
+            layout.right_panel.x,
+            layout.right_panel.y + lc::AI_HEADER_H,
+            layout.right_panel.width,
+            (layout.right_panel.height - lc::AI_HEADER_H).max(0.0),
+        );
+        let (ex, ey, ew, eh) = lc::ai_composer_rect(content_rect);
+        assert!((rect.x - ex).abs() < 0.5, "composer x must match shared geometry");
+        assert!((rect.y - ey).abs() < 0.5, "composer y must match shared geometry");
+        assert!((rect.width - ew).abs() < 0.5);
+        assert!((rect.height - eh).abs() < 0.5);
+        assert!(
+            rect.y > layout.right_panel.y + layout.right_panel.height / 2.0,
+            "composer must be bottom-anchored"
+        );
+    }
 }

@@ -255,4 +255,49 @@ mod tests {
         let mut app = make_test_app();
         app.handle_actions(vec![WidgetAction::FocusChanged(Some(WidgetId::Tab { index: 0 }))]);
     }
+
+    #[test]
+    fn ai_setup_provider_button_opens_settings_destination() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+        use zaroxi_interface_desktop::gui::window::destination::{
+            WorkbenchDestination, WorkbenchTabId,
+        };
+
+        let mut app = make_test_app();
+        let result =
+            app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_SETUP_PROVIDER });
+        assert!(result.is_none(), "setup provider CTA returns no work content");
+        assert_eq!(
+            app.tab_state.active(),
+            &WorkbenchTabId::DestinationRoot(WorkbenchDestination::Settings),
+            "setup provider CTA must focus the Settings destination"
+        );
+    }
+
+    #[test]
+    fn ai_new_chat_button_resets_session_state() {
+        use zaroxi_application_ai::view_model::AiPhase;
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        app.ai_session.phase = AiPhase::Streaming;
+        app.ai_session.tokens_streamed = 42;
+
+        let result = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_NEW_CHAT });
+        assert!(result.is_none(), "no composition wired, so no work content returned");
+        assert_eq!(app.ai_session.phase, AiPhase::Idle, "new chat must reset session phase");
+        assert_eq!(app.ai_session.tokens_streamed, 0);
+    }
+
+    #[test]
+    fn ai_clear_button_resets_session_state() {
+        use zaroxi_application_ai::view_model::AiPhase;
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        app.ai_session.phase = AiPhase::Complete;
+
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_CLEAR });
+        assert_eq!(app.ai_session.phase, AiPhase::Idle, "clear must reset session phase");
+    }
 }

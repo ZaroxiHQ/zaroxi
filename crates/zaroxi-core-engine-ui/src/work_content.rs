@@ -130,6 +130,12 @@ pub struct ShellWorkContent {
     /// AI assistant panel content view — built from the current AI projection
     /// in `DesktopComposition::build_work_content()`.
     pub ai_panel_content: Option<ContentView>,
+    /// When `true`, the AI panel shows a "set up provider" CTA button instead
+    /// of the conversation controls (no provider is configured/available).
+    pub ai_show_setup_cta: bool,
+    /// State-aware placeholder text for the AI prompt composer. `None` falls
+    /// back to a generic prompt hint.
+    pub ai_composer_placeholder: Option<String>,
     /// Per-line syntax highlight spans for the editor content.
     pub syntax_highlights: Option<SyntaxHighlights>,
 }
@@ -160,6 +166,8 @@ impl ShellWorkContent {
             suppress_empty_state: false,
             terminal_tabs,
             ai_panel_content: None,
+            ai_show_setup_cta: false,
+            ai_composer_placeholder: None,
             syntax_highlights: None,
             editor_non_file_tabs: None,
             active_tab_index: None,

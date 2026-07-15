@@ -1,20 +1,23 @@
 /*!
-AI assistant panel — phase-1 foundation.
+AI assistant panel — shell wiring phase.
 
-Renders a real AI IDE panel with:
-- Provider/account status indicator
-- Model picker info
-- Conversation area (messages with roles)
-- Input composer
-- Context chips
-- Proper empty/error/not-connected states
+Renders the AI IDE panel frame:
+- header with panel title
+- provider/model status row (derived from real settings + backend state)
+- session controls row (New chat / Clear)
+- conversation area with role-labelled messages
+- context strip (auto-attached context chips)
+- bottom-anchored prompt composer with state-aware placeholder
 
+All row geometry comes from `zaroxi_core_engine_ui::layout_constants` so the
+painted blocks always align with the hit targets in the shell widget tree.
 Uses existing `UiBlock` primitives from the rendering pipeline.
 */
 
 use crate::gui::ShellRegion;
 use zaroxi_core_engine_render::{Rect, UiBlock};
 use zaroxi_core_engine_style::StyleTokens;
+use zaroxi_core_engine_ui::layout_constants as lc;
 
 /// Provider connection status for display.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +51,7 @@ pub struct ContextChip {
     pub detail: String,
 }
 
-/// Rich AI panel data for rendering.
+/// Normalized AI panel view state (shaped by the AI presenter).
 #[derive(Default)]
 pub struct AiPanelData {
     pub ai_content: Option<String>,
@@ -63,103 +66,110 @@ pub struct AiPanelData {
     pub context_chips: Vec<ContextChip>,
     /// Whether the UI is waiting for a response.
     pub is_loading: bool,
+    /// State-aware placeholder text for the composer.
+    pub composer_placeholder: String,
+    /// Show the "set up provider" CTA (no provider available).
+    pub show_setup_cta: bool,
+    /// Show the session controls row (New chat / Clear).
+    pub show_session_controls: bool,
 }
 
 pub struct AiPanel;
 
 impl AiPanel {
-    /// Build the assistant panel header area.
-    ///
-    /// Returns the header label block and, when provider status is available,
-    /// a small status badge block positioned within the header region.
+    /// Build the assistant panel header area (title only — provider status
+    /// lives in the dedicated status row at the top of the content area).
     pub fn build_header_block(
         r: &ShellRegion,
         tokens: &StyleTokens,
-        data: &AiPanelData,
+        _data: &AiPanelData,
     ) -> Vec<UiBlock> {
-        let mut blocks = Vec::new();
-
-        let header_bg = tokens.assistant_panel_header_background.to_array();
-        let text_color = tokens.text_primary.to_array();
-        let _rx = r.rect.x as f32;
-        let _ry = r.rect.y as f32;
-
-        // Main header label
-        blocks.push(UiBlock {
+        vec![UiBlock {
             id: r.id.to_string(),
             title: "AI Assistant".to_string(),
             rect: r.into(),
-            header_color: Some(header_bg),
+            header_color: Some(tokens.assistant_panel_header_background.to_array()),
             header_only: true,
-            text_color: Some(text_color),
+            text_color: Some(tokens.text_primary.to_array()),
             ..Default::default()
-        });
-
-        // Provider badge if status is known
-        if let Some(status) = &data.provider_status
-            && let Some(badge) = Self::build_provider_badge(r, tokens, status)
-        {
-            blocks.push(badge);
-        }
-
-        blocks
+        }]
     }
 
-    /// Build a small provider status badge block positioned next to the header.
-    pub fn build_provider_badge(
-        r: &ShellRegion,
-        tokens: &StyleTokens,
-        status: &ProviderUiStatus,
-    ) -> Option<UiBlock> {
-        let rx = r.rect.x as f32;
-        let ry = r.rect.y as f32 + 4.0;
-        let rw = r.rect.width as f32;
+    /// Build the provider/model status row shown at the top of the content
+    /// area. Always present so the panel state is clear at a glance.
+    fn build_status_row(r: &ShellRegion, tokens: &StyleTokens, data: &AiPanelData) -> UiBlock {
+        let content = (r.rect.x as f32, r.rect.y as f32, r.rect.width as f32, r.rect.height as f32);
+        let (sx, sy, sw, sh) = lc::ai_status_row_rect(content);
 
-        let connected_label: Option<String> = match status {
-            ProviderUiStatus::Connected { provider, model } => {
-                Some(format!("{provider} \u{00b7} {model}"))
+        let (label, text_color, accent) = match &data.provider_status {
+            Some(ProviderUiStatus::Connected { provider, model }) => {
+                let label = if model.is_empty() {
+                    format!("\u{25CF} {provider}")
+                } else {
+                    format!("\u{25CF} {provider} \u{00b7} {model}")
+                };
+                (label, tokens.text_primary.to_array(), tokens.accent.to_array())
             }
-            _ => None,
-        };
-
-        let (label, color, accent_color) = match status {
-            ProviderUiStatus::NotConnected => {
-                ("No provider", tokens.text_muted.to_array(), tokens.divider_subtle.to_array())
-            }
-            ProviderUiStatus::Connecting => (
-                "Connecting\u{2026}",
+            Some(ProviderUiStatus::Connecting) => (
+                "\u{25CB} Connecting\u{2026}".to_string(),
                 tokens.text_muted.to_array(),
                 tokens.divider_subtle.to_array(),
             ),
-            ProviderUiStatus::Connected { .. } => {
-                let l = connected_label.as_deref().unwrap_or("Connected");
-                (l, tokens.text_primary.to_array(), tokens.accent.to_array())
-            }
-            ProviderUiStatus::Error { .. } => {
-                ("Connection error", tokens.status_error.to_array(), tokens.status_error.to_array())
-            }
+            Some(ProviderUiStatus::Error { .. }) => (
+                "\u{25CF} Connection error".to_string(),
+                tokens.status_error.to_array(),
+                tokens.status_error.to_array(),
+            ),
+            Some(ProviderUiStatus::NotConnected) | None => (
+                "\u{25CB} No provider configured".to_string(),
+                tokens.text_muted.to_array(),
+                tokens.divider_subtle.to_array(),
+            ),
         };
 
-        let badge_w = 160.0;
-        let badge_h = 20.0;
-        let x = (rx + rw - badge_w - 8.0).max(rx + 4.0);
-
-        Some(UiBlock {
-            id: format!("{}.provider_badge", r.id),
-            title: label.to_string(),
-            rect: Rect { x, y: ry, w: badge_w.min(rw - 8.0), h: badge_h },
+        UiBlock {
+            id: format!("{}.status_row", r.id),
+            title: label,
+            rect: Rect { x: sx, y: sy, w: sw, h: sh },
             header_only: true,
-            header_color: Some(accent_color),
-            text_color: Some(color),
-            corner_radius: 4.0,
-            border_color: Some(accent_color),
-            border_width: 1.0,
+            header_color: Some(tokens.assistant_panel_background.to_array()),
+            text_color: Some(text_color),
+            border_color: Some(accent),
+            border_width: 0.0,
             ..Default::default()
-        })
+        }
     }
 
-    /// Build the AI content region: conversation messages, context chips,
-    /// and a prompt composer.
+    /// Build the session controls row (New chat / Clear) aligned with the
+    /// widget-tree hit targets.
+    fn build_session_controls(r: &ShellRegion, tokens: &StyleTokens) -> Vec<UiBlock> {
+        let content = (r.rect.x as f32, r.rect.y as f32, r.rect.width as f32, r.rect.height as f32);
+        let (rx, ry, _rw, rh) = lc::ai_controls_row_rect(content);
+        ["New chat", "Clear"]
+            .iter()
+            .enumerate()
+            .map(|(i, label)| UiBlock {
+                id: format!("{}.session_{}", r.id, label.to_lowercase().replace(' ', "_")),
+                title: label.to_string(),
+                rect: Rect {
+                    x: rx + i as f32 * (lc::AI_SESSION_BTN_W + 8.0),
+                    y: ry,
+                    w: lc::AI_SESSION_BTN_W,
+                    h: rh,
+                },
+                header_only: true,
+                header_color: Some(tokens.sidebar_input.to_array()),
+                text_color: Some(tokens.text_secondary.to_array()),
+                corner_radius: 4.0,
+                border_color: Some(tokens.divider_subtle.to_array()),
+                border_width: 1.0,
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    /// Build the AI content region: status row, session controls,
+    /// conversation messages, context chips, and the prompt composer.
     pub fn build_content_block(
         r: &ShellRegion,
         tokens: &StyleTokens,
@@ -171,16 +181,30 @@ impl AiPanel {
         let ry = r.rect.y as f32;
         let rw = r.rect.width as f32;
         let rh = r.rect.height as f32;
+        let content = (rx, ry, rw, rh);
+        let body_bg = tokens.assistant_panel_background.to_array();
+
+        // ── Provider/model status row ──
+        blocks.push(Self::build_status_row(r, tokens, data));
+
+        // ── Session controls row ──
+        if data.show_session_controls {
+            blocks.extend(Self::build_session_controls(r, tokens));
+        }
+
+        let (_, controls_y, _, controls_h) = lc::ai_controls_row_rect(content);
+        let body_top = controls_y + controls_h + lc::AI_ROW_GAP * 2.0;
 
         // ── Empty states ──
         if data.ai_content.is_none() && data.messages.is_empty() {
-            // Show a useful empty state based on provider status.
             let empty_title: &str;
             let empty_body: String;
             match &data.provider_status {
                 Some(ProviderUiStatus::NotConnected) | None => {
                     empty_title = "Set up an AI provider";
-                    empty_body = "Configure an AI provider (OpenAI, Anthropic, etc.) in Settings to start using the assistant.".to_string();
+                    empty_body =
+                        "Connect a provider in Settings to chat, explain code, and request edits."
+                            .to_string();
                 }
                 Some(ProviderUiStatus::Connecting) => {
                     empty_title = "Connecting to provider\u{2026}";
@@ -188,48 +212,66 @@ impl AiPanel {
                         "Validating connection. This should only take a moment.".to_string();
                 }
                 Some(ProviderUiStatus::Error { message }) => {
-                    empty_title = "Connection failed";
+                    empty_title = "Assistant unavailable";
                     empty_body = message.clone();
                 }
-                Some(ProviderUiStatus::Connected { provider, model }) => {
-                    empty_title = "Ready";
+                Some(ProviderUiStatus::Connected { provider, .. }) => {
+                    empty_title = "Start a conversation";
                     empty_body = format!(
-                        "Connected to {provider} ({model}). Ask a question or request an edit."
+                        "{provider} is ready. Ask a question or request an edit to the active file."
                     );
                 }
             };
 
-            let body_bg = tokens.assistant_panel_background.to_array();
-            let text_primary = tokens.text_primary.to_array();
-            let text_muted = tokens.text_muted.to_array();
-
-            // Title block
             blocks.push(UiBlock {
                 id: format!("{}.empty_title", r.id),
                 title: empty_title.to_string(),
-                rect: Rect { x: rx + 12.0, y: ry + 12.0, w: rw - 24.0, h: 24.0 },
+                rect: Rect {
+                    x: rx + lc::AI_PANEL_PAD,
+                    y: body_top,
+                    w: rw - lc::AI_PANEL_PAD * 2.0,
+                    h: 24.0,
+                },
                 header_only: true,
                 header_color: Some(body_bg),
-                text_color: Some(text_primary),
+                text_color: Some(tokens.text_primary.to_array()),
                 ..Default::default()
             });
 
-            // Body text
             blocks.push(UiBlock {
                 id: format!("{}.empty_body", r.id),
-                title: empty_body.to_string(),
-                content: empty_body.to_string(),
-                rect: Rect { x: rx + 12.0, y: ry + 40.0, w: rw - 24.0, h: 48.0 },
+                title: empty_body.clone(),
+                content: empty_body,
+                rect: Rect {
+                    x: rx + lc::AI_PANEL_PAD,
+                    y: body_top + 28.0,
+                    w: rw - lc::AI_PANEL_PAD * 2.0,
+                    h: 48.0,
+                },
                 header_only: true,
                 header_color: Some(body_bg),
-                text_color: Some(text_muted),
+                text_color: Some(tokens.text_muted.to_array()),
                 ..Default::default()
             });
+
+            // Primary CTA: jump to Settings when no provider is available.
+            if data.show_setup_cta {
+                let (cx, cy, cw, ch) = lc::ai_setup_cta_rect(content);
+                blocks.push(UiBlock {
+                    id: format!("{}.setup_cta", r.id),
+                    title: "Open Settings".to_string(),
+                    rect: Rect { x: cx, y: cy, w: cw, h: ch },
+                    header_only: true,
+                    header_color: Some(tokens.accent.to_array()),
+                    text_color: Some(tokens.text_primary.to_array()),
+                    corner_radius: 4.0,
+                    ..Default::default()
+                });
+            }
         }
 
         // ── Conversation messages ──
-        let mut msg_y = ry + 8.0;
-        let body_bg = tokens.assistant_panel_background.to_array();
+        let mut msg_y = body_top;
         for msg in &data.messages {
             let role_label = match msg.role {
                 MessageRole::User => "You",
@@ -250,7 +292,6 @@ impl AiPanel {
             let streaming_indicator = if msg.is_streaming { " \u{25CF}" } else { "" };
             let label = format!("{role_label}{streaming_indicator}");
 
-            // Role label block
             blocks.push(UiBlock {
                 id: format!("{}.msg_role_{}", r.id, msg_y as u32),
                 title: label,
@@ -263,7 +304,6 @@ impl AiPanel {
             });
             msg_y += 18.0;
 
-            // Message content block (multi-line)
             let content_lines = content.lines().count() as f32;
             let content_h = (content_lines * 16.0).max(16.0);
             blocks.push(UiBlock {
@@ -280,11 +320,26 @@ impl AiPanel {
             msg_y += content_h + 12.0;
         }
 
-        // ── Context chip strip ──
+        // ── Loading indicator ──
+        if data.is_loading {
+            blocks.push(UiBlock {
+                id: format!("{}.loading", r.id),
+                title: "Thinking\u{2026}".to_string(),
+                rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: 20.0 },
+                header_only: true,
+                header_color: Some(body_bg),
+                text_color: Some(tokens.text_muted.to_array()),
+                corner_radius: 0.0,
+                ..Default::default()
+            });
+        }
+
+        // ── Context chip strip (above the composer) ──
+        let (composer_x, composer_y, composer_w, composer_h) = lc::ai_composer_rect(content);
         if !data.context_chips.is_empty() {
-            let chip_y = (ry + rh - 72.0).max(msg_y + 8.0);
             let chip_h = 18.0;
-            let mut chip_x = rx + 8.0;
+            let chip_y = (composer_y - chip_h - lc::AI_ROW_GAP).max(msg_y + 8.0);
+            let mut chip_x = rx + lc::AI_PANEL_PAD;
             let chip_gap = 6.0;
 
             for chip in &data.context_chips {
@@ -307,33 +362,16 @@ impl AiPanel {
             }
         }
 
-        // ── Loading indicator ──
-        if data.is_loading {
-            blocks.push(UiBlock {
-                id: format!("{}.loading", r.id),
-                title: "Thinking\u{2026}".to_string(),
-                rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: 20.0 },
-                header_only: true,
-                header_color: Some(body_bg),
-                text_color: Some(tokens.text_muted.to_array()),
-                corner_radius: 0.0,
-                ..Default::default()
-            });
-        }
+        // ── Prompt composer (bottom-anchored, shared geometry) ──
+        let send = lc::AI_SEND_SIZE;
+        if composer_w > send + 40.0 && composer_y > ry + lc::AI_PANEL_PAD {
+            let composer_ready =
+                matches!(data.provider_status, Some(ProviderUiStatus::Connected { .. }))
+                    && !data.is_loading;
 
-        // ── Prompt composer (bottom-anchored) ──
-        let pad = 12.0;
-        let composer_h = 52.0;
-        let send = 30.0;
-        let composer_x = rx + pad;
-        let composer_y = ry + rh - composer_h - pad;
-        let composer_w = (rw - pad * 2.0).max(0.0);
-
-        if composer_w > send + 40.0 && composer_y > ry + pad {
-            // Composer container
             blocks.push(UiBlock {
                 id: format!("{}.composer", r.id),
-                title: "Ask Zaroxi\u{2026}".to_string(),
+                title: data.composer_placeholder.clone(),
                 rect: Rect { x: composer_x, y: composer_y, w: composer_w, h: composer_h },
                 header_only: true,
                 header_color: Some(tokens.sidebar_input.to_array()),
@@ -344,7 +382,12 @@ impl AiPanel {
                 ..Default::default()
             });
 
-            // Send affordance
+            // Send affordance — dimmed when the composer cannot send.
+            let send_color = if composer_ready {
+                tokens.accent.to_array()
+            } else {
+                tokens.divider_subtle.to_array()
+            };
             blocks.push(UiBlock {
                 id: format!("{}.composer_send", r.id),
                 rect: Rect {
@@ -354,7 +397,7 @@ impl AiPanel {
                     h: send,
                 },
                 header_only: true,
-                header_color: Some(tokens.accent.to_array()),
+                header_color: Some(send_color),
                 corner_radius: 6.0,
                 ..Default::default()
             });

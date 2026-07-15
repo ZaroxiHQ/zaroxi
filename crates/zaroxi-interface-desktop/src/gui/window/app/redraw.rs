@@ -793,6 +793,26 @@ impl GuiApp {
                 ) {
                     wc.suppress_empty_state = true;
                 }
+                // AI panel widget state: setup CTA + composer placeholder are
+                // derived from the same normalized sources as the painted
+                // blocks so hit targets and visuals stay in sync.
+                {
+                    use super::super::presenters::ai_presenter as aip;
+                    let status = self.ai_provider_status.clone().unwrap_or_else(|| {
+                        aip::derive_provider_status(
+                            &self.settings.ai,
+                            self.workspace_service.is_some(),
+                        )
+                    });
+                    let loading = aip::session_is_loading(&self.ai_session);
+                    wc.ai_show_setup_cta = !matches!(
+                        status,
+                        super::super::ai_pane::ProviderUiStatus::Connected { .. }
+                            | super::super::ai_pane::ProviderUiStatus::Connecting
+                    );
+                    wc.ai_composer_placeholder =
+                        Some(aip::composer_placeholder_for(&status, loading));
+                }
                 wc
             });
 
@@ -1351,20 +1371,17 @@ impl GuiApp {
                 && (self.explorer_caret_blink_epoch.elapsed().as_millis()
                     / CARET_BLINK_INTERVAL_MS)
                     .is_multiple_of(2);
-            let mut ai_data = super::super::presenters::shape_ai_content(
-                &self.work_content,
-                self.ai_provider_status.clone(),
-                Vec::new(),
-                Vec::new(),
-                self.ai_session.phase != zaroxi_application_ai::view_model::AiPhase::Idle,
+            let ai_data = super::super::presenters::shape_ai_panel(
+                super::super::presenters::AiPanelSources {
+                    work_content: &self.work_content,
+                    ai_settings: &self.settings.ai,
+                    backend_available: self.workspace_service.is_some(),
+                    session: &self.ai_session,
+                    provider_override: self.ai_provider_status.clone(),
+                    active_file: self.committed_active_file.as_deref(),
+                    messages: Vec::new(),
+                },
             );
-            // Surface truthful AI session status in the assistant panel subtitle
-            // when the panel has no subtitle of its own.
-            if ai_data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty()
-                && let Some(status) = self.ai_session.status_label()
-            {
-                ai_data.ai_subtitle = Some(status);
-            }
 
             let status_inputs = super::super::status_bar::StatusInputs {
                 file_label: status_file_label.as_deref(),
