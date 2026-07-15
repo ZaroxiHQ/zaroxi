@@ -1,9 +1,9 @@
 use crate::ShellWorkContent;
 use crate::layout_constants::{
-    AI_ACTION_BTN_GAP, AI_ACTION_BTN_H, AI_ACTION_BTN_W, AI_ACTION_X_INSET, AI_HEADER_H,
-    AI_INPUT_H, BOTTOM_TAB_ID_BASE, BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP,
-    BRAND_ACCENT_W, BTN_ID_AI_APPLY, BTN_ID_AI_CLOSE, BTN_ID_AI_EXPLAIN, BTN_ID_AI_REJECT,
-    BTN_ID_AI_REVIEW, BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
+    AI_ACTION_X_INSET, AI_HEADER_H, AI_SESSION_BTN_W, BOTTOM_TAB_ID_BASE,
+    BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP, BRAND_ACCENT_W,
+    BTN_ID_AI_CLEAR, BTN_ID_AI_CLOSE, BTN_ID_AI_NEW_CHAT, BTN_ID_AI_SETUP_PROVIDER,
+    BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
     BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
     EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
     EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
@@ -15,7 +15,7 @@ use crate::layout_constants::{
     STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TERMINAL_HEADER_H,
     TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
     TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
-    compute_scrollbar_geometry,
+    ai_composer_rect, ai_controls_row_rect, ai_setup_cta_rect, compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -463,55 +463,64 @@ pub fn build_shell_widget_tree(
             border_width: 0.0,
         });
 
-        // Empty state when no AI content
-        let has_ai = content.and_then(|c| c.ai_panel_content.as_ref()).is_some();
-        if !has_ai {
-            tree.push(ShellWidget::EmptyState {
-                rect: Rect::new(
-                    layout.right_panel.x + 16.0,
-                    layout.right_panel.y + header_h + 32.0,
-                    layout.right_panel.width - 32.0,
-                    40.0,
-                ),
-                message: "No AI session".into(),
-                fill_color: [0.0, 0.0, 0.0, 0.0],
-                text_color: tokens.text_muted.to_array(),
-            });
-        }
+        // Content-area rect below the header — all AI rows derive from this
+        // via the shared `layout_constants::ai_*_rect` helpers so hit targets
+        // stay aligned with the painted blocks in the desktop `ai_pane`.
+        let content_rect = (
+            layout.right_panel.x,
+            layout.right_panel.y + header_h,
+            layout.right_panel.width,
+            (layout.right_panel.height - header_h).max(0.0),
+        );
+        let show_setup_cta = content.map(|c| c.ai_show_setup_cta).unwrap_or(false);
 
-        // AI action buttons — placed below header
-        let btn_w = AI_ACTION_BTN_W;
-        let btn_h = AI_ACTION_BTN_H;
-        let btn_y = layout.right_panel.y + header_h + AI_ACTION_BTN_GAP;
-        let mut btn_x = layout.right_panel.x + AI_ACTION_X_INSET;
-        for (label, idx) in &[
-            ("Explain", BTN_ID_AI_EXPLAIN),
-            ("Review", BTN_ID_AI_REVIEW),
-            ("Apply", BTN_ID_AI_APPLY),
-            ("Reject", BTN_ID_AI_REJECT),
-        ] {
+        if show_setup_cta {
+            // No provider configured: single primary CTA that jumps to Settings.
+            let (cx, cy, cw, ch) = ai_setup_cta_rect(content_rect);
             tree.push(ShellWidget::Button {
-                id: WidgetId::button(*idx),
-                rect: Rect::new(btn_x, btn_y, btn_w, btn_h),
-                label: label.to_string(),
-                fill_color: tokens.rail_background.to_array(),
+                id: WidgetId::button(BTN_ID_AI_SETUP_PROVIDER),
+                rect: Rect::new(cx, cy, cw, ch),
+                label: "Open Settings".into(),
+                fill_color: tokens.accent.to_array(),
                 state: InteractionState::Normal,
             });
-            btn_x += btn_w + AI_ACTION_BTN_GAP;
+        } else {
+            // Session controls row: New chat / Clear.
+            let (rx, ry, _rw, rh) = ai_controls_row_rect(content_rect);
+            for (i, (label, idx)) in
+                [("New chat", BTN_ID_AI_NEW_CHAT), ("Clear", BTN_ID_AI_CLEAR)].iter().enumerate()
+            {
+                tree.push(ShellWidget::Button {
+                    id: WidgetId::button(*idx),
+                    rect: Rect::new(
+                        rx + i as f32 * (AI_SESSION_BTN_W + 8.0),
+                        ry,
+                        AI_SESSION_BTN_W,
+                        rh,
+                    ),
+                    label: label.to_string(),
+                    fill_color: tokens.rail_background.to_array(),
+                    state: InteractionState::Normal,
+                });
+            }
         }
 
-        // AI prompt text input
-        let input_y = btn_y + btn_h + AI_ACTION_BTN_GAP;
-        let input_w = layout.right_panel.width - AI_ACTION_X_INSET * 2.0;
-        tree.push(ShellWidget::TextInput {
-            id: WidgetId::text_input(0),
-            rect: Rect::new(layout.right_panel.x + AI_ACTION_X_INSET, input_y, input_w, AI_INPUT_H),
-            text: String::new(),
-            placeholder: "Describe what you want to do...".into(),
-            fill_color: tokens.rail_background.to_array(),
-            text_color: tokens.text_secondary.to_array(),
-            focused: false,
-        });
+        // Prompt composer: bottom-anchored, matching the painted composer.
+        let (ix, iy, iw, ih) = ai_composer_rect(content_rect);
+        if iw > 40.0 && iy > content_rect.1 {
+            let placeholder = content
+                .and_then(|c| c.ai_composer_placeholder.clone())
+                .unwrap_or_else(|| "Ask about your code\u{2026}".to_string());
+            tree.push(ShellWidget::TextInput {
+                id: WidgetId::text_input(0),
+                rect: Rect::new(ix, iy, iw, ih),
+                text: String::new(),
+                placeholder,
+                fill_color: tokens.rail_background.to_array(),
+                text_color: tokens.text_secondary.to_array(),
+                focused: false,
+            });
+        }
     }
 
     // ── 10. Status bar ──

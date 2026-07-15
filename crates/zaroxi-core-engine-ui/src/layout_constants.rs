@@ -210,6 +210,74 @@ pub const AI_ACTION_BTN_GAP: f32 = 8.0;
 pub const AI_INPUT_H: f32 = 28.0;
 pub const AI_ACTION_X_INSET: f32 = 10.0;
 
+// ── AI panel structure (shared by widget tree + render blocks) ──
+//
+// The AI panel content area is a vertical stack:
+//   status row → session controls row → conversation → context strip → composer.
+// Both `shell_builder.rs` (hit targets) and the desktop `ai_pane.rs` (visuals)
+// derive their rects from these constants so clickable areas always match
+// painted pixels.
+
+/// Height of the provider/model status row at the top of the AI content area.
+pub const AI_STATUS_ROW_H: f32 = 24.0;
+/// Height of the session controls row (New chat / Clear).
+pub const AI_CONTROLS_ROW_H: f32 = 24.0;
+/// Vertical gap between stacked AI panel rows.
+pub const AI_ROW_GAP: f32 = 6.0;
+/// Horizontal padding inside the AI content area.
+pub const AI_PANEL_PAD: f32 = 12.0;
+/// Height of the bottom-anchored prompt composer.
+pub const AI_COMPOSER_H: f32 = 52.0;
+/// Size (square) of the send affordance inside the composer.
+pub const AI_SEND_SIZE: f32 = 30.0;
+/// Width of the session-control buttons (New chat / Clear).
+pub const AI_SESSION_BTN_W: f32 = 76.0;
+/// Width/height of the provider setup CTA button in the empty state.
+pub const AI_SETUP_CTA_W: f32 = 132.0;
+pub const AI_SETUP_CTA_H: f32 = 26.0;
+
+/// Bottom-anchored composer rect within the AI content area
+/// (`content` = (x, y, w, h) of the region below the panel header).
+pub fn ai_composer_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, h) = content;
+    (
+        x + AI_PANEL_PAD,
+        y + h - AI_COMPOSER_H - AI_PANEL_PAD,
+        (w - AI_PANEL_PAD * 2.0).max(0.0),
+        AI_COMPOSER_H,
+    )
+}
+
+/// Provider/model status row rect at the top of the AI content area.
+pub fn ai_status_row_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, _h) = content;
+    (x + AI_PANEL_PAD, y + AI_ROW_GAP, (w - AI_PANEL_PAD * 2.0).max(0.0), AI_STATUS_ROW_H)
+}
+
+/// Session controls row rect (below the status row). Buttons are laid out
+/// left-to-right starting at this rect's origin.
+pub fn ai_controls_row_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, _h) = content;
+    (
+        x + AI_PANEL_PAD,
+        y + AI_ROW_GAP + AI_STATUS_ROW_H + AI_ROW_GAP,
+        (w - AI_PANEL_PAD * 2.0).max(0.0),
+        AI_CONTROLS_ROW_H,
+    )
+}
+
+/// Provider setup CTA rect shown in the not-configured empty state.
+/// Positioned below the empty-state title + body copy.
+pub fn ai_setup_cta_rect(content: (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+    let (x, y, w, _h) = content;
+    (
+        x + AI_PANEL_PAD,
+        y + AI_ROW_GAP + AI_STATUS_ROW_H + AI_ROW_GAP + 96.0,
+        AI_SETUP_CTA_W.min((w - AI_PANEL_PAD * 2.0).max(0.0)),
+        AI_SETUP_CTA_H,
+    )
+}
+
 // ── Status bar ──
 
 pub const STATUSBAR_PILL_H_INSET: f32 = 6.0;
@@ -234,6 +302,9 @@ pub const BTN_ID_AI_EXPLAIN: usize = 20;
 pub const BTN_ID_AI_REVIEW: usize = 21;
 pub const BTN_ID_AI_APPLY: usize = 22;
 pub const BTN_ID_AI_REJECT: usize = 23;
+pub const BTN_ID_AI_NEW_CHAT: usize = 24;
+pub const BTN_ID_AI_CLEAR: usize = 25;
+pub const BTN_ID_AI_SETUP_PROVIDER: usize = 26;
 pub const BTN_ID_EXPLORER_CTA: usize = 30;
 
 /// Base `WidgetId::Tab` index for the bottom-panel tabs (Terminal / Problems /

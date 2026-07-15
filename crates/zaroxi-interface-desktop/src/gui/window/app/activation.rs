@@ -86,6 +86,34 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             app.close_terminal_action();
             return None;
         }
+        // ── AI panel: provider setup CTA ──
+        // Jumps to the Settings destination where AI providers are configured.
+        // Handled before the workspace guard so it works with no workspace open.
+        WidgetId::Button { index: lc::BTN_ID_AI_SETUP_PROVIDER } => {
+            app.tab_state.open_or_focus_non_file(
+                crate::gui::window::destination::WorkbenchTabId::DestinationRoot(
+                    crate::gui::window::destination::WorkbenchDestination::Settings,
+                ),
+            );
+            app.invalidate(super::InvalidationFlags::content());
+            return None;
+        }
+        // ── AI panel: session controls (New chat / Clear) ──
+        // Both reset the truthful session state; when a composition is wired
+        // they also clear the active AI projection so the panel returns to
+        // its ready state.
+        WidgetId::Button { index: lc::BTN_ID_AI_NEW_CHAT }
+        | WidgetId::Button { index: lc::BTN_ID_AI_CLEAR } => {
+            app.ai_session = zaroxi_application_ai::view_model::AiSessionState::default();
+            app.invalidate(super::InvalidationFlags::content());
+            let service = app.workspace_service.clone();
+            let session = app.session_id.clone();
+            if let Some(comp) = app.composition.as_mut() {
+                crate::desktop::cancel_ai_edit_active(comp, service, session);
+                return Some(comp.build_work_content());
+            }
+            return None;
+        }
         _ => {}
     }
 
@@ -474,6 +502,8 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
                     suppress_empty_state: false,
                     terminal_tabs: None,
                     ai_panel_content: None,
+                    ai_show_setup_cta: false,
+                    ai_composer_placeholder: None,
                     syntax_highlights: None,
                     editor_non_file_tabs: None,
                     active_tab_index: None,
