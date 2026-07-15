@@ -1,21 +1,23 @@
 use crate::ShellWorkContent;
 use crate::layout_constants::{
-    AI_ACTION_X_INSET, AI_HEADER_H, AI_SESSION_BTN_W, BOTTOM_TAB_ID_BASE,
-    BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT, BRAND_ACCENT_TOP, BRAND_ACCENT_W,
-    BTN_ID_AI_CLEAR, BTN_ID_AI_CLOSE, BTN_ID_AI_NEW_CHAT, BTN_ID_AI_SETUP_PROVIDER,
-    BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA, BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE,
-    BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H, EMPTY_STATE_W, EMPTY_STATE_X_OFFSET,
-    EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H, EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA,
-    EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H, EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX,
-    EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H, EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H,
-    EXPLORER_ROW_W_REDUCTION, EXPLORER_SEARCH_TO_ROWS_GAP, PANEL_ACTION_V_REDUCTION,
-    PANEL_ACTION_W, PANEL_ACTION_X_INSET, PANEL_ACTION_Y_INSET, RAIL_STRIP_H, SB_BOTTOM_SPEC,
-    SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD, SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM,
-    SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H, SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD,
-    STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET, STATUSBAR_PILL_Y, TERMINAL_HEADER_H,
-    TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W, TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET,
-    TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN, TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W,
-    ai_composer_rect, ai_controls_row_rect, ai_setup_cta_rect, compute_scrollbar_geometry,
+    AI_ACTION_X_INSET, AI_APPROVAL_BTN_W, AI_HEADER_H, AI_QUICK_BTN_GAP, AI_QUICK_BTN_W,
+    AI_SESSION_BTN_W, BOTTOM_TAB_ID_BASE, BRAND_ACCENT_BOTTOM_INSET, BRAND_ACCENT_LEFT,
+    BRAND_ACCENT_TOP, BRAND_ACCENT_W, BTN_ID_AI_APPLY, BTN_ID_AI_CLEAR, BTN_ID_AI_CLOSE,
+    BTN_ID_AI_EXPLAIN, BTN_ID_AI_FIX, BTN_ID_AI_NEW_CHAT, BTN_ID_AI_REFACTOR, BTN_ID_AI_REJECT,
+    BTN_ID_AI_SETUP_PROVIDER, BTN_ID_AI_TESTS, BTN_ID_CLOSE_WINDOW, BTN_ID_EXPLORER_CTA,
+    BTN_ID_MAXIMIZE, BTN_ID_MINIMIZE, BTN_ID_TERMINAL_CLOSE, DIVIDER_SPACE, EMPTY_STATE_H,
+    EMPTY_STATE_W, EMPTY_STATE_X_OFFSET, EMPTY_STATE_Y_OFFSET, EXPLORER_CTA_BTN_H,
+    EXPLORER_CTA_BTN_W, EXPLORER_CTA_BTN_X_EXTRA, EXPLORER_CTA_BTN_Y_OFFSET, EXPLORER_HEADER_H,
+    EXPLORER_HEADER_TO_ROWS_GAP, EXPLORER_INDENT_PX, EXPLORER_MAX_Y_INSET, EXPLORER_ROW_H,
+    EXPLORER_ROW_TEXT_INSET, EXPLORER_ROW_VIS_H, EXPLORER_ROW_W_REDUCTION,
+    EXPLORER_SEARCH_TO_ROWS_GAP, PANEL_ACTION_V_REDUCTION, PANEL_ACTION_W, PANEL_ACTION_X_INSET,
+    PANEL_ACTION_Y_INSET, RAIL_STRIP_H, SB_BOTTOM_SPEC, SB_EDITOR_SPEC, SB_INTERACTIVE_GUTTER_PAD,
+    SB_SIDEBAR_SPEC, SCROLLBAR_ID_BOTTOM, SCROLLBAR_ID_EDITOR, SCROLLBAR_ID_SIDEBAR, SEARCH_BAR_H,
+    SEARCH_TO_DIVIDER_GAP, SIDEBAR_PAD, STATUSBAR_BADGE_W, STATUSBAR_PILL_H_INSET,
+    STATUSBAR_PILL_Y, TERMINAL_HEADER_H, TERMINAL_TAB_GAP, TERMINAL_TAB_H, TERMINAL_TAB_W,
+    TERMINAL_TAB_X_OFFSET, TERMINAL_TAB_Y_OFFSET, TOOLBAR_BTN_GAP, TOOLBAR_BTN_RIGHT_MARGIN,
+    TOOLBAR_BTN_V_INSET, TOOLBAR_BTN_W, ai_actions_row_rect, ai_composer_rect,
+    ai_controls_row_rect, ai_setup_cta_rect, compute_scrollbar_geometry,
 };
 use crate::primitives::DividerOrientation;
 use crate::widgets::{PanelHeaderAction, ShellWidget, ShellWidgetTree};
@@ -502,6 +504,51 @@ pub fn build_shell_widget_tree(
                     fill_color: tokens.rail_background.to_array(),
                     state: InteractionState::Normal,
                 });
+            }
+
+            // Actions row: pending proposal review takes priority over quick
+            // actions — edits are never applied without explicit approval.
+            let (ax, ay, _aw, ah) = ai_actions_row_rect(content_rect);
+            let pending = content.map(|c| c.ai_has_pending_proposal).unwrap_or(false);
+            let quick = content.map(|c| c.ai_quick_actions).unwrap_or(false);
+            if pending {
+                tree.push(ShellWidget::Button {
+                    id: WidgetId::button(BTN_ID_AI_APPLY),
+                    rect: Rect::new(ax, ay, AI_APPROVAL_BTN_W, ah),
+                    label: "Apply".into(),
+                    fill_color: tokens.accent.to_array(),
+                    state: InteractionState::Normal,
+                });
+                tree.push(ShellWidget::Button {
+                    id: WidgetId::button(BTN_ID_AI_REJECT),
+                    rect: Rect::new(ax + AI_APPROVAL_BTN_W + 8.0, ay, AI_APPROVAL_BTN_W, ah),
+                    label: "Reject".into(),
+                    fill_color: tokens.rail_background.to_array(),
+                    state: InteractionState::Normal,
+                });
+            } else if quick {
+                for (i, (label, idx)) in [
+                    ("Explain", BTN_ID_AI_EXPLAIN),
+                    ("Refactor", BTN_ID_AI_REFACTOR),
+                    ("Tests", BTN_ID_AI_TESTS),
+                    ("Fix", BTN_ID_AI_FIX),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    tree.push(ShellWidget::Button {
+                        id: WidgetId::button(*idx),
+                        rect: Rect::new(
+                            ax + i as f32 * (AI_QUICK_BTN_W + AI_QUICK_BTN_GAP),
+                            ay,
+                            AI_QUICK_BTN_W,
+                            ah,
+                        ),
+                        label: label.to_string(),
+                        fill_color: tokens.rail_background.to_array(),
+                        state: InteractionState::Normal,
+                    });
+                }
             }
         }
 

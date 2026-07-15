@@ -813,6 +813,10 @@ impl GuiApp {
                     );
                     wc.ai_composer_placeholder =
                         Some(aip::composer_placeholder_for(&status, loading));
+                    wc.ai_quick_actions = !wc.ai_show_setup_cta
+                        && !wc.ai_has_pending_proposal
+                        && !loading
+                        && self.committed_active_file.is_some();
                 }
                 wc
             });
@@ -1377,6 +1381,27 @@ impl GuiApp {
                 .editor_buffer
                 .selection_line_range()
                 .map(|(a, b)| (a.min(b) + 1, a.max(b) + 1));
+            // Pending edit proposal (awaiting explicit review) from the live
+            // AI projection; the current buffer text feeds the diff summary.
+            let ai_projection = self
+                .composition
+                .as_ref()
+                .and_then(|c| c.latest_ai_projection())
+                .filter(|p| matches!(p.state, Some(crate::desktop::AiState::Proposed)));
+            let ai_proposal_target = ai_projection
+                .as_ref()
+                .and_then(|p| p.target_buffer.as_ref().map(|b| b.to_string()));
+            let ai_original_text =
+                if ai_projection.is_some() { Some(self.editor_buffer.to_string()) } else { None };
+            let ai_pending_proposal = ai_projection.as_ref().and_then(|p| {
+                p.proposal_text.as_deref().map(|proposal_text| {
+                    super::super::presenters::ai_presenter::PendingProposalSource {
+                        target: ai_proposal_target.as_deref().unwrap_or("buffer"),
+                        proposal_text,
+                        original_text: ai_original_text.as_deref(),
+                    }
+                })
+            });
             let ai_data = super::super::presenters::shape_ai_panel(
                 super::super::presenters::AiPanelSources {
                     work_content: &self.work_content,
@@ -1390,6 +1415,7 @@ impl GuiApp {
                     workspace_name: status_workspace_name.as_deref(),
                     composer_text: &self.ai_composer_text,
                     composer_focused: self.ai_composer_focused,
+                    pending_proposal: ai_pending_proposal,
                 },
             );
 
