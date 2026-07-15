@@ -92,6 +92,11 @@ pub struct AiPanelData {
     pub show_quick_actions: bool,
     /// Pending edit proposal awaiting explicit review.
     pub approval: Option<ApprovalBannerUi>,
+    /// Compact MCP status line (only when MCP is enabled in settings).
+    pub mcp_status: Option<String>,
+    /// Truthful operational activity line (request phase / last-run stats),
+    /// shown in the compact status footer.
+    pub activity_line: Option<String>,
 }
 
 pub struct AiPanel;
@@ -145,6 +150,13 @@ impl AiPanel {
                 tokens.text_muted.to_array(),
                 tokens.divider_subtle.to_array(),
             ),
+        };
+
+        // Append the compact MCP summary when MCP is enabled — one status
+        // row, no duplicated surfaces.
+        let label = match &data.mcp_status {
+            Some(mcp) => format!("{label} \u{00b7} {mcp}"),
+            None => label,
         };
 
         UiBlock {
@@ -479,9 +491,10 @@ impl AiPanel {
 
         // ── Context chip strip (above the composer) ──
         let (composer_x, composer_y, composer_w, composer_h) = lc::ai_composer_rect(content);
+        let chip_h = 18.0;
+        let chips_y = (composer_y - chip_h - lc::AI_ROW_GAP).max(msg_y + 8.0);
         if !data.context_chips.is_empty() {
-            let chip_h = 18.0;
-            let chip_y = (composer_y - chip_h - lc::AI_ROW_GAP).max(msg_y + 8.0);
+            let chip_y = chips_y;
             let mut chip_x = rx + lc::AI_PANEL_PAD;
             let chip_gap = 6.0;
 
@@ -502,6 +515,29 @@ impl AiPanel {
                     ..Default::default()
                 });
                 chip_x += chip_w + chip_gap;
+            }
+        }
+
+        // ── Compact activity footer (above the context strip) ──
+        // Truthful operational state only: request phase or last-run stats.
+        if let Some(activity) = &data.activity_line {
+            let activity_y = (chips_y - 16.0 - lc::AI_ROW_GAP).max(msg_y + 8.0);
+            if activity_y + 16.0 < composer_y {
+                blocks.push(UiBlock {
+                    id: format!("{}.activity", r.id),
+                    title: activity.clone(),
+                    rect: Rect {
+                        x: rx + lc::AI_PANEL_PAD,
+                        y: activity_y,
+                        w: rw - lc::AI_PANEL_PAD * 2.0,
+                        h: 16.0,
+                    },
+                    header_only: true,
+                    header_color: Some(body_bg),
+                    text_color: Some(tokens.text_faint.to_array()),
+                    corner_radius: 0.0,
+                    ..Default::default()
+                });
             }
         }
 

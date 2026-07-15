@@ -201,6 +201,10 @@ pub struct GuiApp {
     pub ai_composer_text: String,
     /// Whether the AI prompt composer holds keyboard focus.
     pub ai_composer_focused: bool,
+    /// MCP server lifecycle service. Surfaces truthful server/tool status in
+    /// the AI panel when MCP is enabled in settings; servers are only
+    /// registered/connected through explicit configuration, never implicitly.
+    pub ai_mcp: zaroxi_application_ai::mcp_service::McpService,
     pub on_widget_activated: Option<WidgetActivationHandler>,
     pub composition: Option<DesktopComposition>,
     pub workspace_view: Option<Arc<dyn WorkspaceView>>,
