@@ -158,6 +158,8 @@ impl AiPanel {
             Some(mcp) => format!("{label} \u{00b7} {mcp}"),
             None => label,
         };
+        // Long provider/model names must not overflow narrow panels.
+        let label = truncate_to_cols(&label, ((sw / 7.0) as usize).max(8));
 
         UiBlock {
             id: format!("{}.status_row", r.id),
@@ -176,10 +178,14 @@ impl AiPanel {
     /// widget-tree hit targets.
     fn build_session_controls(r: &ShellRegion, tokens: &StyleTokens) -> Vec<UiBlock> {
         let content = (r.rect.x as f32, r.rect.y as f32, r.rect.width as f32, r.rect.height as f32);
-        let (rx, ry, _rw, rh) = lc::ai_controls_row_rect(content);
+        let (rx, ry, rw, rh) = lc::ai_controls_row_rect(content);
         ["New chat", "Clear"]
             .iter()
             .enumerate()
+            .filter(|(i, _)| {
+                let bx = rx + *i as f32 * (lc::AI_SESSION_BTN_W + 8.0);
+                bx + lc::AI_SESSION_BTN_W <= rx + rw
+            })
             .map(|(i, label)| UiBlock {
                 id: format!("{}.session_{}", r.id, label.to_lowercase().replace(' ', "_")),
                 title: label.to_string(),
@@ -228,7 +234,7 @@ impl AiPanel {
         let mut body_top = controls_y + controls_h + lc::AI_ROW_GAP * 2.0;
 
         // ── Actions row: approval takes priority over quick actions ──
-        let (actions_x, actions_y, _actions_w, actions_h) = lc::ai_actions_row_rect(content);
+        let (actions_x, actions_y, actions_w, actions_h) = lc::ai_actions_row_rect(content);
         if data.show_session_controls && data.approval.is_some() {
             // Apply / Reject buttons aligned with the widget-tree hit targets.
             blocks.push(UiBlock {
@@ -285,7 +291,11 @@ impl AiPanel {
             }
         } else if data.show_session_controls && data.show_quick_actions {
             let mut bx = actions_x;
+            let actions_right = actions_x + actions_w;
             for label in ["Explain", "Refactor", "Tests", "Fix"] {
+                if bx + lc::AI_QUICK_BTN_W > actions_right {
+                    break;
+                }
                 blocks.push(UiBlock {
                     id: format!("{}.quick_{}", r.id, label.to_lowercase()),
                     title: label.to_string(),
@@ -424,45 +434,91 @@ impl AiPanel {
             msg_y += card_h + lc::AI_ROW_GAP * 2.0;
         }
 
-        for msg in &data.messages {
-            let role_label = match msg.role {
-                MessageRole::User => "You",
-                MessageRole::Assistant => "Assistant",
-                MessageRole::System => "System",
-            };
-            let content = wrap_message(&msg.content, wrap_cols);
-            let role_color = match msg.role {
-                MessageRole::User => tokens.accent.to_array(),
-                MessageRole::Assistant => tokens.text_primary.to_array(),
-                MessageRole::System => tokens.status_error.to_array(),
-            };
+        // ── Conversation messages (tail-anchored, like a real chat) ──
+        // Precompute per-message display text + heights, then render the
+        // most recent messages that fit between the body top and the footer
+        // reservations (activity line, context strip, composer).
+        let (composer_x, composer_y, composer_w, composer_h) = lc::ai_composer_rect(content);
+        let chip_h = 18.0;
+        let mut footer_reserved = 0.0;
+        if !data.context_chips.is_empty() {
+            footer_reserved += chip_h + lc::AI_ROW_GAP;
+        }
+        if data.activity_line.is_some() {
+            footer_reserved += 16.0 + lc::AI_ROW_GAP;
+        }
+        let messages_bottom = composer_y - lc::AI_ROW_GAP - footer_reserved;
 
-            let streaming_indicator = if msg.is_streaming { " \u{25CF}" } else { "" };
-            let label = format!("{role_label}{streaming_indicator}");
-            let display = if content.is_empty() && msg.is_streaming {
-                "\u{2026}".to_string()
-            } else {
-                content
-            };
+        struct MsgBlock {
+            label: String,
+            display: String,
+            role_color: [f32; 4],
+            height: f32,
+        }
+        let prepared: Vec<MsgBlock> = data
+            .messages
+            .iter()
+            .map(|msg| {
+                let role_label = match msg.role {
+                    MessageRole::User => "You",
+                    MessageRole::Assistant => "Assistant",
+                    MessageRole::System => "System",
+                };
+                let content = wrap_message(&msg.content, wrap_cols);
+                let role_color = match msg.role {
+                    MessageRole::User => tokens.accent.to_array(),
+                    MessageRole::Assistant => tokens.text_primary.to_array(),
+                    MessageRole::System => tokens.status_error.to_array(),
+                };
+                let streaming_indicator = if msg.is_streaming { " \u{25CF}" } else { "" };
+                let label = format!("{role_label}{streaming_indicator}");
+                let display = if content.is_empty() && msg.is_streaming {
+                    "\u{2026}".to_string()
+                } else {
+                    content
+                };
+                let content_h = (display.lines().count() as f32 * 16.0).max(16.0);
+                MsgBlock { label, display, role_color, height: 18.0 + content_h + 12.0 }
+            })
+            .collect();
 
+        let heights: Vec<f32> = prepared.iter().map(|m| m.height).collect();
+        let (start_idx, hidden) =
+            visible_message_window(&heights, (messages_bottom - msg_y).max(0.0));
+
+        if hidden > 0 {
+            let noun = if hidden == 1 { "earlier message" } else { "earlier messages" };
+            blocks.push(UiBlock {
+                id: format!("{}.hidden_msgs", r.id),
+                title: format!("\u{2026} {hidden} {noun} hidden"),
+                rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: 14.0 },
+                header_only: true,
+                header_color: Some(body_bg),
+                text_color: Some(tokens.text_faint.to_array()),
+                corner_radius: 0.0,
+                ..Default::default()
+            });
+            msg_y += 16.0;
+        }
+
+        for msg in prepared.iter().skip(start_idx) {
             blocks.push(UiBlock {
                 id: format!("{}.msg_role_{}", r.id, msg_y as u32),
-                title: label,
+                title: msg.label.clone(),
                 rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: 16.0 },
                 header_only: true,
                 header_color: Some(body_bg),
-                text_color: Some(role_color),
+                text_color: Some(msg.role_color),
                 corner_radius: 0.0,
                 ..Default::default()
             });
             msg_y += 18.0;
 
-            let content_lines = display.lines().count() as f32;
-            let content_h = (content_lines * 16.0).max(16.0);
+            let content_h = msg.height - 18.0 - 12.0;
             blocks.push(UiBlock {
                 id: format!("{}.msg_body_{}", r.id, msg_y as u32),
-                title: display.clone(),
-                content: display,
+                title: msg.display.clone(),
+                content: msg.display.clone(),
                 rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: content_h },
                 header_color: Some(body_bg),
                 content_color: Some(body_bg),
@@ -489,18 +545,25 @@ impl AiPanel {
             });
         }
 
-        // ── Context chip strip (above the composer) ──
-        let (composer_x, composer_y, composer_w, composer_h) = lc::ai_composer_rect(content);
-        let chip_h = 18.0;
-        let chips_y = (composer_y - chip_h - lc::AI_ROW_GAP).max(msg_y + 8.0);
-        if !data.context_chips.is_empty() {
+        // ── Context chip strip (fixed position above the composer) ──
+        let chips_y = composer_y - chip_h - lc::AI_ROW_GAP;
+        if !data.context_chips.is_empty() && chips_y > msg_y {
             let chip_y = chips_y;
             let mut chip_x = rx + lc::AI_PANEL_PAD;
             let chip_gap = 6.0;
+            let strip_right = rx + rw - lc::AI_PANEL_PAD;
+            let mut shown = 0usize;
 
             for chip in &data.context_chips {
                 let chip_label = format!("{}: {}", chip.label, chip.detail);
                 let chip_w = (chip_label.len() as f32 * 7.0 + 16.0).min(rw - 16.0);
+                // Reserve room for a possible "+N" overflow marker.
+                if chip_x + chip_w > strip_right - 36.0 && shown + 1 < data.context_chips.len() {
+                    break;
+                }
+                if chip_x + chip_w > strip_right {
+                    break;
+                }
 
                 blocks.push(UiBlock {
                     id: format!("{}.chip_{}", r.id, chip.label),
@@ -515,14 +578,35 @@ impl AiPanel {
                     ..Default::default()
                 });
                 chip_x += chip_w + chip_gap;
+                shown += 1;
+            }
+
+            // Overflow marker: context is still attached, just not all shown.
+            let overflow = data.context_chips.len() - shown;
+            if overflow > 0 && chip_x + 32.0 <= strip_right {
+                blocks.push(UiBlock {
+                    id: format!("{}.chip_overflow", r.id),
+                    title: format!("+{overflow}"),
+                    rect: Rect { x: chip_x, y: chip_y, w: 32.0, h: chip_h },
+                    header_only: true,
+                    header_color: Some(tokens.sidebar_input.to_array()),
+                    text_color: Some(tokens.text_muted.to_array()),
+                    corner_radius: 3.0,
+                    border_color: Some(tokens.divider_subtle.to_array()),
+                    border_width: 1.0,
+                    ..Default::default()
+                });
             }
         }
 
         // ── Compact activity footer (above the context strip) ──
         // Truthful operational state only: request phase or last-run stats.
         if let Some(activity) = &data.activity_line {
-            let activity_y = (chips_y - 16.0 - lc::AI_ROW_GAP).max(msg_y + 8.0);
-            if activity_y + 16.0 < composer_y {
+            let mut activity_y = chips_y - 16.0 - lc::AI_ROW_GAP;
+            if data.context_chips.is_empty() {
+                activity_y = composer_y - 16.0 - lc::AI_ROW_GAP;
+            }
+            if activity_y > msg_y {
                 blocks.push(UiBlock {
                     id: format!("{}.activity", r.id),
                     title: activity.clone(),
@@ -647,9 +731,80 @@ fn wrap_message(text: &str, max_cols: usize) -> String {
     out
 }
 
+/// Truncate `text` to `max_cols` characters, appending an ellipsis when cut.
+fn truncate_to_cols(text: &str, max_cols: usize) -> String {
+    let count = text.chars().count();
+    if count <= max_cols {
+        return text.to_string();
+    }
+    let keep = max_cols.saturating_sub(1).max(1);
+    let mut out: String = text.chars().take(keep).collect();
+    out.push('\u{2026}');
+    out
+}
+
+/// Select the suffix of messages that fits into `available` vertical space.
+///
+/// Returns `(start_index, hidden_count)`. When some messages are hidden,
+/// 16px is reserved for the "earlier messages hidden" marker.
+fn visible_message_window(heights: &[f32], available: f32) -> (usize, usize) {
+    if heights.is_empty() {
+        return (0, 0);
+    }
+    let total: f32 = heights.iter().sum();
+    if total <= available {
+        return (0, 0);
+    }
+    let marker_h = 16.0;
+    let budget = (available - marker_h).max(0.0);
+    let mut used = 0.0;
+    let mut start = heights.len();
+    for (i, h) in heights.iter().enumerate().rev() {
+        if used + h > budget {
+            break;
+        }
+        used += h;
+        start = i;
+    }
+    // Always show at least the newest message, even if it must clip.
+    if start == heights.len() {
+        start = heights.len() - 1;
+    }
+    (start, start)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::wrap_message;
+    use super::{truncate_to_cols, visible_message_window, wrap_message};
+
+    #[test]
+    fn truncate_to_cols_preserves_short_text_and_ellipsizes_long() {
+        assert_eq!(truncate_to_cols("short", 10), "short");
+        assert_eq!(truncate_to_cols("a very long provider name", 10), "a very lo\u{2026}");
+    }
+
+    #[test]
+    fn visible_message_window_shows_all_when_fitting() {
+        assert_eq!(visible_message_window(&[40.0, 40.0], 200.0), (0, 0));
+    }
+
+    #[test]
+    fn visible_message_window_hides_oldest_when_overflowing() {
+        // 5 messages of 50px into 120px available (minus 16px marker):
+        // only the last two fit.
+        let heights = [50.0; 5];
+        let (start, hidden) = visible_message_window(&heights, 120.0);
+        assert_eq!(start, 3);
+        assert_eq!(hidden, 3);
+    }
+
+    #[test]
+    fn visible_message_window_always_keeps_newest_message() {
+        let heights = [500.0, 500.0];
+        let (start, hidden) = visible_message_window(&heights, 100.0);
+        assert_eq!(start, 1, "newest message must remain visible");
+        assert_eq!(hidden, 1);
+    }
 
     #[test]
     fn wrap_message_respects_column_budget() {

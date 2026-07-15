@@ -168,6 +168,22 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
 
     // ── AI prompt composer has keyboard focus: route typing to the prompt ──
     if app.ai_composer_focused {
+        // Ctrl/Cmd+V pastes clipboard text into the draft.
+        if (app.ctrl_held || app.cmd_held)
+            && !app.shift_held
+            && matches!(logical_key, Key::Character(c) if c.eq_ignore_ascii_case("v"))
+        {
+            app.ai_composer_paste();
+            return Vec::new();
+        }
+        // Ctrl/Cmd+Shift+C copies the last assistant response.
+        if (app.ctrl_held || app.cmd_held)
+            && app.shift_held
+            && matches!(logical_key, Key::Character(c) if c.eq_ignore_ascii_case("c"))
+        {
+            app.ai_copy_last_response();
+            return Vec::new();
+        }
         match logical_key {
             Key::Named(NamedKey::Escape) => {
                 app.ai_composer_focused = false;
