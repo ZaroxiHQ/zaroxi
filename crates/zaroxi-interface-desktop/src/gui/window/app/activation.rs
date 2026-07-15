@@ -21,6 +21,10 @@ use super::open_pipeline;
 /// Dispatch a WidgetId activation to DesktopComposition domain actions.
 /// Used by the explorer CTA button and by the standard activation handler.
 pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<ShellWorkContent> {
+    // Clicking anything other than the AI composer releases its keyboard focus.
+    if app.ai_composer_focused && !matches!(id, WidgetId::TextInput { index: 0 }) {
+        app.ai_composer_focused = false;
+    }
     match id {
         WidgetId::Button { index: lc::BTN_ID_CLOSE_WINDOW } => {
             std::process::exit(0);
@@ -99,19 +103,21 @@ pub(crate) fn dispatch_activation(app: &mut GuiApp, id: &WidgetId) -> Option<She
             return None;
         }
         // ── AI panel: session controls (New chat / Clear) ──
-        // Both reset the truthful session state; when a composition is wired
-        // they also clear the active AI projection so the panel returns to
-        // its ready state.
-        WidgetId::Button { index: lc::BTN_ID_AI_NEW_CHAT }
-        | WidgetId::Button { index: lc::BTN_ID_AI_CLEAR } => {
-            app.ai_session = zaroxi_application_ai::view_model::AiSessionState::default();
+        // New chat archives the current conversation; Clear resets it in
+        // place. Both reset the live session state and any pending projection.
+        WidgetId::Button { index: lc::BTN_ID_AI_NEW_CHAT } => {
+            app.ai_new_chat();
+            return None;
+        }
+        WidgetId::Button { index: lc::BTN_ID_AI_CLEAR } => {
+            app.ai_clear_conversation();
+            return None;
+        }
+        // ── AI panel: prompt composer focus ──
+        WidgetId::TextInput { index: 0 } => {
+            app.ai_composer_focused = true;
+            app.explorer_search_active = false;
             app.invalidate(super::InvalidationFlags::content());
-            let service = app.workspace_service.clone();
-            let session = app.session_id.clone();
-            if let Some(comp) = app.composition.as_mut() {
-                crate::desktop::cancel_ai_edit_active(comp, service, session);
-                return Some(comp.build_work_content());
-            }
             return None;
         }
         _ => {}

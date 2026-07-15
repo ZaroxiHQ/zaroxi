@@ -5184,6 +5184,7 @@ dependencies = [
  "zaroxi-core-platform-syntax",
  "zaroxi-core-platform-terminal",
  "zaroxi-core-telemetry",
+ "zaroxi-domain-ai",
  "zaroxi-domain-buffer",
  "zaroxi-domain-settings",
  "zaroxi-domain-workspace",

@@ -37,6 +37,8 @@ mod toolbar;
 #[cfg(feature = "gui_window")]
 pub use bootstrap::run_shell_window;
 
+pub use ai_pane::ProviderUiStatus;
+
 #[cfg(feature = "gui_window")]
 pub use app::editor_group::{BackendKind, EditorGroup};
 pub use app::{FrameScheduler, GuiApp, WidgetActivationHandler};

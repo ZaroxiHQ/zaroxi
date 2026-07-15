@@ -1,8 +1,11 @@
 use zaroxi_application_ai::view_model::{AiPhase, AiSessionState};
 use zaroxi_core_engine_ui::ShellWorkContent;
+use zaroxi_domain_ai::conversation::{ChatRole, Conversation, ConversationStatus};
 use zaroxi_domain_settings::AiSettings;
 
-use super::super::ai_pane::{AiPanelData, ChatMessageUi, ContextChip, ProviderUiStatus};
+use super::super::ai_pane::{
+    AiPanelData, ChatMessageUi, ContextChip, MessageRole, ProviderUiStatus,
+};
 
 /// All real application state the AI panel is shaped from.
 ///
@@ -23,8 +26,16 @@ pub struct AiPanelSources<'a> {
     pub provider_override: Option<ProviderUiStatus>,
     /// Path/identity of the active editor file, if any.
     pub active_file: Option<&'a str>,
-    /// Conversation messages to display (wired in the chat phase).
-    pub messages: Vec<ChatMessageUi>,
+    /// Current conversation snapshot from the session manager.
+    pub conversation: Option<&'a Conversation>,
+    /// Active editor selection as a 1-based inclusive line range.
+    pub selection_lines: Option<(usize, usize)>,
+    /// Name of the open workspace root, if any.
+    pub workspace_name: Option<&'a str>,
+    /// Current text typed into the composer.
+    pub composer_text: &'a str,
+    /// Whether the composer holds keyboard focus.
+    pub composer_focused: bool,
 }
 
 /// Derive the provider status shown in the panel status row.
@@ -43,7 +54,12 @@ pub fn derive_provider_status(ai: &AiSettings, backend_available: bool) -> Provi
 }
 
 /// Derive the auto-attached context chips shown above the composer.
-pub fn derive_context_chips(ai: &AiSettings, active_file: Option<&str>) -> Vec<ContextChip> {
+pub fn derive_context_chips(
+    ai: &AiSettings,
+    active_file: Option<&str>,
+    selection_lines: Option<(usize, usize)>,
+    workspace_name: Option<&str>,
+) -> Vec<ContextChip> {
     let mut chips = Vec::new();
     if ai.auto_attach_file
         && let Some(file) = active_file
@@ -59,7 +75,71 @@ pub fn derive_context_chips(ai: &AiSettings, active_file: Option<&str>) -> Vec<C
             chips.push(ContextChip { label: "File".to_string(), detail: name });
         }
     }
+    if ai.auto_attach_selection
+        && let Some((start, end)) = selection_lines
+    {
+        let detail =
+            if start == end { format!("Ln {start}") } else { format!("Ln {start}\u{2013}{end}") };
+        chips.push(ContextChip { label: "Selection".to_string(), detail });
+    }
+    if let Some(name) = workspace_name
+        && !name.trim().is_empty()
+    {
+        chips.push(ContextChip { label: "Workspace".to_string(), detail: name.to_string() });
+    }
     chips
+}
+
+/// Map a domain conversation into displayable panel messages.
+///
+/// The empty assistant placeholder appended by `SessionManager::send_message`
+/// is shown as a streaming message while a request is in flight and dropped
+/// otherwise; a conversation-level error surfaces as a system message.
+pub fn messages_from_conversation(conv: &Conversation) -> Vec<ChatMessageUi> {
+    let busy = conversation_is_busy(conv);
+    let mut out: Vec<ChatMessageUi> = Vec::with_capacity(conv.messages.len() + 1);
+    for msg in &conv.messages {
+        let role = match msg.role {
+            ChatRole::User => MessageRole::User,
+            ChatRole::Assistant => MessageRole::Assistant,
+            ChatRole::System => MessageRole::System,
+        };
+        let is_empty_assistant = role == MessageRole::Assistant && msg.content.is_empty();
+        if is_empty_assistant && !busy {
+            continue;
+        }
+        out.push(ChatMessageUi {
+            role,
+            content: msg.content.clone(),
+            is_streaming: msg.is_streaming || (is_empty_assistant && busy),
+        });
+    }
+    if conv.status == ConversationStatus::Error
+        && let Some(err) = conv.last_error.as_deref()
+    {
+        out.push(ChatMessageUi {
+            role: MessageRole::System,
+            content: err.to_string(),
+            is_streaming: false,
+        });
+    }
+    out
+}
+
+/// Whether the conversation has an in-flight request.
+pub fn conversation_is_busy(conv: &Conversation) -> bool {
+    matches!(conv.status, ConversationStatus::Sending | ConversationStatus::Streaming)
+}
+
+/// Compact conversation summary for the panel subtitle
+/// (e.g. `"New Chat \u{00b7} 3 messages"`). `None` when the chat is empty.
+pub fn conversation_subtitle(conv: &Conversation) -> Option<String> {
+    let visible = conv.messages.iter().filter(|m| !m.content.is_empty()).count();
+    if visible == 0 {
+        return None;
+    }
+    let noun = if visible == 1 { "message" } else { "messages" };
+    Some(format!("{} \u{00b7} {} {}", conv.title, visible, noun))
 }
 
 /// State-aware placeholder for the prompt composer.
@@ -99,33 +179,41 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
     let provider_status = src
         .provider_override
         .unwrap_or_else(|| derive_provider_status(src.ai_settings, src.backend_available));
-    let is_loading = session_is_loading(src.session);
+    let conversation_busy = src.conversation.map(conversation_is_busy).unwrap_or(false);
+    let is_loading = session_is_loading(src.session) || conversation_busy;
     let composer_placeholder = composer_placeholder_for(&provider_status, is_loading);
     let show_setup_cta = !matches!(
         provider_status,
         ProviderUiStatus::Connected { .. } | ProviderUiStatus::Connecting
     );
-    let context_chips = derive_context_chips(src.ai_settings, src.active_file);
+    let context_chips = derive_context_chips(
+        src.ai_settings,
+        src.active_file,
+        src.selection_lines,
+        src.workspace_name,
+    );
+    let messages = src.conversation.map(messages_from_conversation).unwrap_or_default();
 
     let mut data = AiPanelData {
         ai_content,
         ai_title,
         ai_subtitle,
         provider_status: Some(provider_status),
-        messages: src.messages,
+        messages,
         context_chips,
         is_loading,
         composer_placeholder,
+        composer_text: src.composer_text.to_string(),
+        composer_focused: src.composer_focused,
         show_setup_cta,
         show_session_controls: !show_setup_cta,
     };
 
-    // Surface the truthful AI session status in the subtitle when the panel
-    // content does not provide one of its own.
-    if data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty()
-        && let Some(status) = src.session.status_label()
-    {
-        data.ai_subtitle = Some(status);
+    // Subtitle priority: panel content subtitle → conversation summary →
+    // truthful session status.
+    if data.ai_subtitle.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        data.ai_subtitle =
+            src.conversation.and_then(conversation_subtitle).or_else(|| src.session.status_label());
     }
 
     data
@@ -171,7 +259,7 @@ mod tests {
     #[test]
     fn auto_attach_file_yields_file_chip_with_basename() {
         let ai = settings();
-        let chips = derive_context_chips(&ai, Some("buf:src/main.rs"));
+        let chips = derive_context_chips(&ai, Some("buf:src/main.rs"), None, None);
         assert_eq!(chips.len(), 1);
         assert_eq!(chips[0].label, "File");
         assert_eq!(chips[0].detail, "main.rs");
@@ -181,13 +269,41 @@ mod tests {
     fn auto_attach_disabled_yields_no_chips() {
         let mut ai = settings();
         ai.auto_attach_file = false;
-        assert!(derive_context_chips(&ai, Some("src/main.rs")).is_empty());
+        assert!(derive_context_chips(&ai, Some("src/main.rs"), None, None).is_empty());
     }
 
     #[test]
     fn no_active_file_yields_no_chips() {
         let ai = settings();
-        assert!(derive_context_chips(&ai, None).is_empty());
+        assert!(derive_context_chips(&ai, None, None, None).is_empty());
+    }
+
+    #[test]
+    fn selection_chip_shows_line_range() {
+        let ai = settings();
+        let chips = derive_context_chips(&ai, None, Some((3, 9)), None);
+        assert_eq!(chips.len(), 1);
+        assert_eq!(chips[0].label, "Selection");
+        assert_eq!(chips[0].detail, "Ln 3\u{2013}9");
+
+        let single = derive_context_chips(&ai, None, Some((5, 5)), None);
+        assert_eq!(single[0].detail, "Ln 5");
+    }
+
+    #[test]
+    fn selection_chip_respects_auto_attach_setting() {
+        let mut ai = settings();
+        ai.auto_attach_selection = false;
+        assert!(derive_context_chips(&ai, None, Some((1, 4)), None).is_empty());
+    }
+
+    #[test]
+    fn workspace_chip_shows_root_name() {
+        let ai = settings();
+        let chips = derive_context_chips(&ai, None, None, Some("zaroxi"));
+        assert_eq!(chips.len(), 1);
+        assert_eq!(chips[0].label, "Workspace");
+        assert_eq!(chips[0].detail, "zaroxi");
     }
 
     #[test]
@@ -222,7 +338,11 @@ mod tests {
             session: &session,
             provider_override: None,
             active_file: None,
-            messages: Vec::new(),
+            conversation: None,
+            selection_lines: None,
+            workspace_name: None,
+            composer_text: "",
+            composer_focused: false,
         });
         assert!(!data.show_setup_cta);
         assert!(data.show_session_controls);
@@ -236,9 +356,85 @@ mod tests {
             session: &session,
             provider_override: None,
             active_file: None,
-            messages: Vec::new(),
+            conversation: None,
+            selection_lines: None,
+            workspace_name: None,
+            composer_text: "",
+            composer_focused: false,
         });
         assert!(data.show_setup_cta);
         assert!(!data.show_session_controls);
+    }
+
+    #[test]
+    fn messages_map_roles_and_surface_errors() {
+        use zaroxi_domain_ai::conversation::ChatMessage;
+        let mut conv = Conversation::new();
+        conv.add_message(ChatMessage::user("explain this"));
+        conv.add_message(ChatMessage::assistant("It does X."));
+        conv.status = ConversationStatus::Error;
+        conv.last_error = Some("timeout".into());
+
+        let msgs = messages_from_conversation(&conv);
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].role, MessageRole::User);
+        assert_eq!(msgs[1].role, MessageRole::Assistant);
+        assert_eq!(msgs[2].role, MessageRole::System);
+        assert_eq!(msgs[2].content, "timeout");
+    }
+
+    #[test]
+    fn empty_assistant_placeholder_streams_while_busy_and_hides_when_idle() {
+        use zaroxi_domain_ai::conversation::ChatMessage;
+        let mut conv = Conversation::new();
+        conv.add_message(ChatMessage::user("hello"));
+        conv.add_message(ChatMessage::assistant(""));
+
+        conv.status = ConversationStatus::Sending;
+        let busy = messages_from_conversation(&conv);
+        assert_eq!(busy.len(), 2);
+        assert!(busy[1].is_streaming, "pending assistant reply must show as streaming");
+
+        conv.status = ConversationStatus::Idle;
+        let idle = messages_from_conversation(&conv);
+        assert_eq!(idle.len(), 1, "empty assistant placeholder must be hidden when idle");
+    }
+
+    #[test]
+    fn conversation_subtitle_counts_visible_messages() {
+        use zaroxi_domain_ai::conversation::ChatMessage;
+        let mut conv = Conversation::new();
+        assert!(conversation_subtitle(&conv).is_none());
+
+        conv.add_message(ChatMessage::user("q"));
+        conv.add_message(ChatMessage::assistant("a"));
+        conv.add_message(ChatMessage::assistant(""));
+        let subtitle = conversation_subtitle(&conv).unwrap();
+        assert!(subtitle.contains("2 messages"), "empty messages must not be counted: {subtitle}");
+    }
+
+    #[test]
+    fn conversation_busy_drives_loading_state() {
+        use zaroxi_domain_ai::conversation::ChatMessage;
+        let session = AiSessionState::default();
+        let ai = settings();
+        let mut conv = Conversation::new();
+        conv.add_message(ChatMessage::user("q"));
+        conv.status = ConversationStatus::Sending;
+
+        let data = shape_ai_panel(AiPanelSources {
+            work_content: &None,
+            ai_settings: &ai,
+            backend_available: true,
+            session: &session,
+            provider_override: None,
+            active_file: None,
+            conversation: Some(&conv),
+            selection_lines: None,
+            workspace_name: None,
+            composer_text: "",
+            composer_focused: false,
+        });
+        assert!(data.is_loading, "sending conversation must show loading state");
     }
 }

@@ -94,6 +94,7 @@ zaroxi-application-bootstrap = { path = "../zaroxi-application-bootstrap" }
 zaroxi-application-editor = { path = "../zaroxi-application-editor" }
 zaroxi-application-navigation = { path = "../zaroxi-application-navigation" }
 zaroxi-application-ai = { path = "../zaroxi-application-ai" }
+zaroxi-domain-ai = { workspace = true }
 zaroxi-core-platform-terminal = { path = "../zaroxi-core-platform-terminal" }
 zaroxi-core-editor-buffer = { path = "../zaroxi-core-editor-buffer" }
 zaroxi-core-editor-rope = { path = "../zaroxi-core-editor-rope" }

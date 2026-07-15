@@ -51,6 +51,9 @@ mod tests {
             ai_trace_rx: Some(ai_trace_rx),
             ai_session: zaroxi_application_ai::view_model::AiSessionState::default(),
             ai_provider_status: None,
+            ai_chat: zaroxi_application_ai::session_manager::SessionManager::new(),
+            ai_composer_text: String::new(),
+            ai_composer_focused: false,
             on_widget_activated: None,
             composition: None,
             workspace_view: None,
@@ -299,5 +302,85 @@ mod tests {
 
         let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_CLEAR });
         assert_eq!(app.ai_session.phase, AiPhase::Idle, "clear must reset session phase");
+    }
+
+    #[test]
+    fn ai_composer_click_focuses_and_other_clicks_blur() {
+        let mut app = make_test_app();
+        assert!(!app.ai_composer_focused);
+
+        let _ = app.dispatch_activation(&WidgetId::TextInput { index: 0 });
+        assert!(app.ai_composer_focused, "clicking the composer must focus it");
+
+        let _ = app.dispatch_activation(&WidgetId::Tab { index: 0 });
+        assert!(!app.ai_composer_focused, "clicking elsewhere must blur the composer");
+    }
+
+    #[test]
+    fn ai_composer_typing_and_send_without_backend_reports_error() {
+        use winit::keyboard::{Key, NamedKey};
+        use zaroxi_interface_desktop::gui::window::ProviderUiStatus;
+
+        let mut app = make_test_app();
+        // Simulate a ready provider so the composer accepts input; the send
+        // path must still surface a truthful error because no backend is wired.
+        app.ai_provider_status =
+            Some(ProviderUiStatus::Connected { provider: "OpenAI".into(), model: String::new() });
+        let _ = app.dispatch_activation(&WidgetId::TextInput { index: 0 });
+
+        app.press_key(&Key::Character("h".into()));
+        app.press_key(&Key::Character("i".into()));
+        assert_eq!(app.ai_composer_text, "hi");
+
+        app.press_key(&Key::Named(NamedKey::Backspace));
+        assert_eq!(app.ai_composer_text, "h");
+        app.press_key(&Key::Character("ello".into()));
+        app.press_key(&Key::Named(NamedKey::Enter));
+
+        assert!(app.ai_composer_text.is_empty(), "send must clear the composer");
+        let conv = app.ai_chat.active_conversation();
+        assert_eq!(conv.messages[0].content, "hello");
+        assert_eq!(
+            conv.status,
+            zaroxi_domain_ai::conversation::ConversationStatus::Error,
+            "no backend wired: conversation must surface a truthful error"
+        );
+        assert!(conv.last_error.is_some());
+    }
+
+    #[test]
+    fn ai_composer_escape_releases_focus() {
+        use winit::keyboard::{Key, NamedKey};
+
+        let mut app = make_test_app();
+        let _ = app.dispatch_activation(&WidgetId::TextInput { index: 0 });
+        assert!(app.ai_composer_focused);
+
+        app.press_key(&Key::Named(NamedKey::Escape));
+        assert!(!app.ai_composer_focused, "Escape must release composer focus");
+    }
+
+    #[test]
+    fn ai_new_chat_archives_conversation_and_clears_composer() {
+        use zaroxi_core_engine_ui::layout_constants as lc;
+
+        let mut app = make_test_app();
+        app.ai_chat.send_message("first question");
+        app.ai_chat.finish_streaming();
+        app.ai_composer_text = "draft".into();
+
+        let _ = app.dispatch_activation(&WidgetId::Button { index: lc::BTN_ID_AI_NEW_CHAT });
+
+        assert!(app.ai_chat.active_conversation().messages.is_empty());
+        assert_eq!(app.ai_chat.history().len(), 1, "previous conversation must be archived");
+        assert!(app.ai_composer_text.is_empty(), "new chat must clear the composer draft");
+    }
+
+    #[test]
+    fn ai_send_prompt_ignores_empty_and_whitespace_input() {
+        let mut app = make_test_app();
+        app.ai_composer_text = "   ".into();
+        app.ai_send_prompt();
+        assert!(app.ai_chat.active_conversation().messages.is_empty());
     }
 }

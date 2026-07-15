@@ -166,6 +166,36 @@ pub(crate) fn handle_keyboard_press(app: &mut GuiApp, logical_key: &Key) -> Vec<
         return Vec::new();
     }
 
+    // ── AI prompt composer has keyboard focus: route typing to the prompt ──
+    if app.ai_composer_focused {
+        match logical_key {
+            Key::Named(NamedKey::Escape) => {
+                app.ai_composer_focused = false;
+            }
+            Key::Named(NamedKey::Enter) => {
+                app.ai_send_prompt();
+            }
+            Key::Named(NamedKey::Backspace) => {
+                app.ai_composer_text.pop();
+            }
+            Key::Named(NamedKey::Space) => {
+                app.ai_composer_text.push(' ');
+            }
+            Key::Character(text)
+                if !app.ctrl_held
+                    && !app.cmd_held
+                    && !text.is_empty()
+                    && !text.chars().any(|c| c.is_control()) =>
+            {
+                app.ai_composer_text.push_str(text.as_str());
+            }
+            _ => {}
+        }
+        app.invalidate(super::InvalidationFlags::content());
+        // Composer focus is exclusive: swallow all keys so the editor never sees them.
+        return Vec::new();
+    }
+
     // ── Explorer search box has keyboard focus: route typing to the filter ──
     if app.explorer_search_active {
         match logical_key {
