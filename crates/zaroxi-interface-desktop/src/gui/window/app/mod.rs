@@ -36,6 +36,7 @@ responsibility modules so `mod.rs` is coordinator-only:
 */
 
 mod activation;
+mod ai_chat;
 pub(crate) mod background_open;
 pub(crate) mod background_parse;
 pub(crate) mod background_read;
@@ -192,6 +193,14 @@ pub struct GuiApp {
     pub ai_session: zaroxi_application_ai::view_model::AiSessionState,
     /// AI provider connection status for the assistant panel header badge.
     pub ai_provider_status: Option<crate::gui::window::ai_pane::ProviderUiStatus>,
+    /// Conversation/session store for the assistant panel chat. Thread-safe
+    /// application-layer manager; the GUI reads a snapshot each frame and
+    /// mutates it only through the `ai_*` methods in `app/ai_chat.rs`.
+    pub ai_chat: zaroxi_application_ai::session_manager::SessionManager,
+    /// Current text typed into the AI prompt composer.
+    pub ai_composer_text: String,
+    /// Whether the AI prompt composer holds keyboard focus.
+    pub ai_composer_focused: bool,
     pub on_widget_activated: Option<WidgetActivationHandler>,
     pub composition: Option<DesktopComposition>,
     pub workspace_view: Option<Arc<dyn WorkspaceView>>,

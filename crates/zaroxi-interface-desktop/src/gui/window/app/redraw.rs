@@ -804,7 +804,8 @@ impl GuiApp {
                             self.workspace_service.is_some(),
                         )
                     });
-                    let loading = aip::session_is_loading(&self.ai_session);
+                    let loading = aip::session_is_loading(&self.ai_session)
+                        || aip::conversation_is_busy(&self.ai_chat.active_conversation());
                     wc.ai_show_setup_cta = !matches!(
                         status,
                         super::super::ai_pane::ProviderUiStatus::Connected { .. }
@@ -1371,6 +1372,11 @@ impl GuiApp {
                 && (self.explorer_caret_blink_epoch.elapsed().as_millis()
                     / CARET_BLINK_INTERVAL_MS)
                     .is_multiple_of(2);
+            let ai_conversation = self.ai_chat.active_conversation();
+            let ai_selection = self
+                .editor_buffer
+                .selection_line_range()
+                .map(|(a, b)| (a.min(b) + 1, a.max(b) + 1));
             let ai_data = super::super::presenters::shape_ai_panel(
                 super::super::presenters::AiPanelSources {
                     work_content: &self.work_content,
@@ -1379,7 +1385,11 @@ impl GuiApp {
                     session: &self.ai_session,
                     provider_override: self.ai_provider_status.clone(),
                     active_file: self.committed_active_file.as_deref(),
-                    messages: Vec::new(),
+                    conversation: Some(&ai_conversation),
+                    selection_lines: ai_selection,
+                    workspace_name: status_workspace_name.as_deref(),
+                    composer_text: &self.ai_composer_text,
+                    composer_focused: self.ai_composer_focused,
                 },
             );
 

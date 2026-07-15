@@ -68,6 +68,10 @@ pub struct AiPanelData {
     pub is_loading: bool,
     /// State-aware placeholder text for the composer.
     pub composer_placeholder: String,
+    /// Current text typed into the composer (empty shows the placeholder).
+    pub composer_text: String,
+    /// Whether the composer holds keyboard focus (shows the caret).
+    pub composer_focused: bool,
     /// Show the "set up provider" CTA (no provider available).
     pub show_setup_cta: bool,
     /// Show the session controls row (New chat / Clear).
@@ -272,25 +276,28 @@ impl AiPanel {
 
         // ── Conversation messages ──
         let mut msg_y = body_top;
+        // Approximate monospace character budget for wrapping message text.
+        let wrap_cols = (((rw - 32.0) / 7.0) as usize).max(16);
         for msg in &data.messages {
             let role_label = match msg.role {
                 MessageRole::User => "You",
                 MessageRole::Assistant => "Assistant",
                 MessageRole::System => "System",
             };
-            let content = if msg.content.len() > 200 {
-                format!("{}...", &msg.content[..200])
-            } else {
-                msg.content.clone()
-            };
+            let content = wrap_message(&msg.content, wrap_cols);
             let role_color = match msg.role {
                 MessageRole::User => tokens.accent.to_array(),
                 MessageRole::Assistant => tokens.text_primary.to_array(),
-                MessageRole::System => tokens.text_muted.to_array(),
+                MessageRole::System => tokens.status_error.to_array(),
             };
 
             let streaming_indicator = if msg.is_streaming { " \u{25CF}" } else { "" };
             let label = format!("{role_label}{streaming_indicator}");
+            let display = if content.is_empty() && msg.is_streaming {
+                "\u{2026}".to_string()
+            } else {
+                content
+            };
 
             blocks.push(UiBlock {
                 id: format!("{}.msg_role_{}", r.id, msg_y as u32),
@@ -304,12 +311,12 @@ impl AiPanel {
             });
             msg_y += 18.0;
 
-            let content_lines = content.lines().count() as f32;
+            let content_lines = display.lines().count() as f32;
             let content_h = (content_lines * 16.0).max(16.0);
             blocks.push(UiBlock {
                 id: format!("{}.msg_body_{}", r.id, msg_y as u32),
-                title: content.clone(),
-                content: content.clone(),
+                title: display.clone(),
+                content: display,
                 rect: Rect { x: rx + 8.0, y: msg_y, w: rw - 16.0, h: content_h },
                 header_color: Some(body_bg),
                 content_color: Some(body_bg),
@@ -321,7 +328,9 @@ impl AiPanel {
         }
 
         // ── Loading indicator ──
-        if data.is_loading {
+        // Only shown when no streaming message already communicates progress.
+        let has_streaming_message = data.messages.iter().any(|m| m.is_streaming);
+        if data.is_loading && !has_streaming_message {
             blocks.push(UiBlock {
                 id: format!("{}.loading", r.id),
                 title: "Thinking\u{2026}".to_string(),
@@ -369,21 +378,46 @@ impl AiPanel {
                 matches!(data.provider_status, Some(ProviderUiStatus::Connected { .. }))
                     && !data.is_loading;
 
+            // Typed text takes priority over the placeholder; a caret marker
+            // communicates keyboard focus.
+            let has_text = !data.composer_text.is_empty();
+            let composer_label = if has_text {
+                let mut t = data.composer_text.clone();
+                if data.composer_focused {
+                    t.push('\u{258F}');
+                }
+                t
+            } else if data.composer_focused {
+                "\u{258F}".to_string()
+            } else {
+                data.composer_placeholder.clone()
+            };
+            let composer_text_color = if has_text {
+                tokens.text_primary.to_array()
+            } else {
+                tokens.text_muted.to_array()
+            };
+            let composer_border = if data.composer_focused {
+                tokens.accent.to_array()
+            } else {
+                tokens.border_strong.to_array()
+            };
+
             blocks.push(UiBlock {
                 id: format!("{}.composer", r.id),
-                title: data.composer_placeholder.clone(),
+                title: composer_label,
                 rect: Rect { x: composer_x, y: composer_y, w: composer_w, h: composer_h },
                 header_only: true,
                 header_color: Some(tokens.sidebar_input.to_array()),
-                border_color: Some(tokens.border_strong.to_array()),
+                border_color: Some(composer_border),
                 border_width: 1.0,
                 corner_radius: 8.0,
-                text_color: Some(tokens.text_muted.to_array()),
+                text_color: Some(composer_text_color),
                 ..Default::default()
             });
 
             // Send affordance — dimmed when the composer cannot send.
-            let send_color = if composer_ready {
+            let send_color = if composer_ready && has_text {
                 tokens.accent.to_array()
             } else {
                 tokens.divider_subtle.to_array()
@@ -404,5 +438,69 @@ impl AiPanel {
         }
 
         blocks
+    }
+}
+
+/// Word-aware wrap of message text to a column budget so long responses stay
+/// inside the panel. Falls back to hard breaks for unbroken runs.
+fn wrap_message(text: &str, max_cols: usize) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / max_cols.max(1));
+    for (i, line) in text.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let mut col = 0usize;
+        for word in line.split(' ') {
+            let wlen = word.chars().count();
+            if col > 0 && col + 1 + wlen > max_cols {
+                out.push('\n');
+                col = 0;
+            } else if col > 0 {
+                out.push(' ');
+                col += 1;
+            }
+            if wlen > max_cols {
+                // Hard-break an unbroken run.
+                for (j, ch) in word.chars().enumerate() {
+                    if j > 0 && j % max_cols == 0 {
+                        out.push('\n');
+                    }
+                    out.push(ch);
+                }
+                col = wlen % max_cols;
+            } else {
+                out.push_str(word);
+                col += wlen;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap_message;
+
+    #[test]
+    fn wrap_message_respects_column_budget() {
+        let wrapped = wrap_message("alpha beta gamma delta", 11);
+        for line in wrapped.lines() {
+            assert!(line.chars().count() <= 11, "line too long: {line:?}");
+        }
+        assert_eq!(wrapped.replace('\n', " "), "alpha beta gamma delta");
+    }
+
+    #[test]
+    fn wrap_message_hard_breaks_long_runs() {
+        let wrapped = wrap_message(&"x".repeat(25), 10);
+        let lines: Vec<&str> = wrapped.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines.iter().all(|l| l.chars().count() <= 10));
+    }
+
+    #[test]
+    fn wrap_message_preserves_existing_newlines() {
+        let wrapped = wrap_message("line one\nline two", 40);
+        assert_eq!(wrapped, "line one\nline two");
     }
 }
