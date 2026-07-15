@@ -1,3 +1,4 @@
+use zaroxi_application_ai::mcp_service::McpStatusSummary;
 use zaroxi_application_ai::view_model::{AiPhase, AiSessionState};
 use zaroxi_core_engine_ui::ShellWorkContent;
 use zaroxi_domain_ai::conversation::{ChatRole, Conversation, ConversationStatus};
@@ -48,6 +49,9 @@ pub struct AiPanelSources<'a> {
     pub composer_focused: bool,
     /// Pending edit proposal awaiting explicit review, if any.
     pub pending_proposal: Option<PendingProposalSource<'a>>,
+    /// MCP status summary — only provided when MCP is enabled in settings,
+    /// so the default panel surface stays free of MCP noise.
+    pub mcp: Option<McpStatusSummary>,
 }
 
 /// Derive the provider status shown in the panel status row.
@@ -163,6 +167,13 @@ pub fn approval_from_proposal(src: &PendingProposalSource<'_>) -> ApprovalBanner
     ApprovalBannerUi { target: src.target.to_string(), summary }
 }
 
+/// Compact MCP status line for the panel status row
+/// (e.g. `"MCP 1/2 \u{00b7} 5 tools"`).
+pub fn format_mcp_status(summary: &McpStatusSummary) -> String {
+    let noun = if summary.tool_count == 1 { "tool" } else { "tools" };
+    format!("MCP {}/{} \u{00b7} {} {}", summary.connected, summary.total, summary.tool_count, noun)
+}
+
 /// Compact conversation summary for the panel subtitle
 /// (e.g. `"New Chat \u{00b7} 3 messages"`). `None` when the chat is empty.
 pub fn conversation_subtitle(conv: &Conversation) -> Option<String> {
@@ -228,6 +239,9 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
     let approval = src.pending_proposal.as_ref().map(approval_from_proposal);
     let show_quick_actions =
         !show_setup_cta && src.active_file.is_some() && approval.is_none() && !is_loading;
+    let mcp_status = src.mcp.as_ref().map(format_mcp_status);
+    // Truthful operational activity: request phase or completed-run stats.
+    let activity_line = src.session.status_label();
 
     let mut data = AiPanelData {
         ai_content,
@@ -244,6 +258,8 @@ pub fn shape_ai_panel(src: AiPanelSources<'_>) -> AiPanelData {
         show_session_controls: !show_setup_cta,
         show_quick_actions,
         approval,
+        mcp_status,
+        activity_line,
     };
 
     // Subtitle priority: panel content subtitle → conversation summary →
@@ -381,6 +397,7 @@ mod tests {
             composer_text: "",
             composer_focused: false,
             pending_proposal: None,
+            mcp: None,
         });
         assert!(!data.show_setup_cta);
         assert!(data.show_session_controls);
@@ -400,6 +417,7 @@ mod tests {
             composer_text: "",
             composer_focused: false,
             pending_proposal: None,
+            mcp: None,
         });
         assert!(data.show_setup_cta);
         assert!(!data.show_session_controls);
@@ -474,6 +492,7 @@ mod tests {
             composer_text: "",
             composer_focused: false,
             pending_proposal: None,
+            mcp: None,
         });
         assert!(data.is_loading, "sending conversation must show loading state");
     }
@@ -522,6 +541,7 @@ mod tests {
                 composer_text: "",
                 composer_focused: false,
                 pending_proposal: proposal,
+                mcp: None,
             })
         };
 
@@ -537,5 +557,67 @@ mod tests {
             "pending proposal must replace quick actions with approval"
         );
         assert!(with_proposal.approval.is_some(), "approval banner must be present");
+    }
+
+    #[test]
+    fn mcp_status_line_formats_counts() {
+        let summary = McpStatusSummary { connected: 1, total: 2, tool_count: 5 };
+        assert_eq!(format_mcp_status(&summary), "MCP 1/2 \u{00b7} 5 tools");
+        let single = McpStatusSummary { connected: 0, total: 1, tool_count: 1 };
+        assert_eq!(format_mcp_status(&single), "MCP 0/1 \u{00b7} 1 tool");
+    }
+
+    #[test]
+    fn mcp_status_only_surfaces_when_provided() {
+        let session = AiSessionState::default();
+        let ai = settings();
+        let shape = |mcp: Option<McpStatusSummary>| {
+            shape_ai_panel(AiPanelSources {
+                work_content: &None,
+                ai_settings: &ai,
+                backend_available: true,
+                session: &session,
+                provider_override: None,
+                active_file: None,
+                conversation: None,
+                selection_lines: None,
+                workspace_name: None,
+                composer_text: "",
+                composer_focused: false,
+                pending_proposal: None,
+                mcp,
+            })
+        };
+        assert!(shape(None).mcp_status.is_none(), "MCP off → no MCP status in the panel");
+        let on = shape(Some(McpStatusSummary { connected: 2, total: 2, tool_count: 7 }));
+        assert_eq!(on.mcp_status.as_deref(), Some("MCP 2/2 \u{00b7} 7 tools"));
+    }
+
+    #[test]
+    fn activity_line_surfaces_session_phase_and_run_stats() {
+        let ai = settings();
+        let mut session = AiSessionState::default();
+        session.phase = AiPhase::Streaming;
+        let shape = |session: &AiSessionState| {
+            shape_ai_panel(AiPanelSources {
+                work_content: &None,
+                ai_settings: &ai,
+                backend_available: true,
+                session,
+                provider_override: None,
+                active_file: None,
+                conversation: None,
+                selection_lines: None,
+                workspace_name: None,
+                composer_text: "",
+                composer_focused: false,
+                pending_proposal: None,
+                mcp: None,
+            })
+        };
+        assert_eq!(shape(&session).activity_line.as_deref(), Some("Streaming\u{2026}"));
+
+        session.phase = AiPhase::Idle;
+        assert!(shape(&session).activity_line.is_none(), "idle session → no activity noise");
     }
 }

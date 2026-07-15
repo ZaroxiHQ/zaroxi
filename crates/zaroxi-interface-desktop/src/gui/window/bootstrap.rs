@@ -100,6 +100,7 @@ pub fn run_shell_window(
         ai_chat: zaroxi_application_ai::session_manager::SessionManager::new(),
         ai_composer_text: String::new(),
         ai_composer_focused: false,
+        ai_mcp: zaroxi_application_ai::mcp_service::McpService::new(),
         on_widget_activated: None,
         composition,
         workspace_view,

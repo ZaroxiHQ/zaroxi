@@ -1416,6 +1416,11 @@ impl GuiApp {
                     composer_text: &self.ai_composer_text,
                     composer_focused: self.ai_composer_focused,
                     pending_proposal: ai_pending_proposal,
+                    mcp: if self.settings.ai.mcp_enabled {
+                        Some(self.ai_mcp.status_summary())
+                    } else {
+                        None
+                    },
                 },
             );
 
